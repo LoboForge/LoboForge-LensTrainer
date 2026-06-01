@@ -3,10 +3,26 @@
 
 from __future__ import annotations
 
+import os
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message="The pynvml package is deprecated.*",
+    category=FutureWarning,
+)
+
+# transformers 5.9 + kernels>=0.15 crash at import (LayerRepository needs version=).
+os.environ.setdefault("USE_HUB_KERNELS", "NO")
+
 import argparse
 from pathlib import Path
 
 import yaml
+
+from lens_trainer.cuda_env import configure_cuda_libraries
+
+configure_cuda_libraries()
 
 from lens_trainer.config import load_config
 from lens_trainer.trainer import LensTrainer

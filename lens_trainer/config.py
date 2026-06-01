@@ -65,20 +65,49 @@ class TrainConfig:
     guidance_scale: float = 5.0
     timestep_type: str = "shift"
     save_every: int = 250
-    sample_every: int = 250
+    sample_every: int = 100
+    sample_every_early: int = 50
+    sample_early_until: int = 500
     seed: int = 42
     max_grad_norm: float = 1.0
 
 
 @dataclass
 class SampleConfig:
-    prompts: list[str] = field(default_factory=lambda: ["a photo of [trigger] in a cafe"])
+    # Prompt list — sampled at step 0 as base-model control, then again during training with LoRA.
+    prompts: list[Any] = field(
+        default_factory=lambda: [
+            {
+                "name": "stage_full",
+                "prompt": "a photo of [trigger] ballet dancer on stage, full body, soft spotlight, photorealistic",
+            },
+            {
+                "name": "studio_portrait",
+                "prompt": "portrait of [trigger], ballet studio, hair in bun, shallow depth of field",
+            },
+            {
+                "name": "arabesque",
+                "prompt": "[trigger] in arabesque on pointe, clean studio background, studio lighting",
+            },
+            {
+                "name": "cafe_candid",
+                "prompt": "candid photo of [trigger] in street clothes, natural lighting",
+            },
+            {
+                "name": "sign_test",
+                "prompt": "[trigger] holding a sign that says 'lens lora test', studio photo",
+            },
+        ]
+    )
     trigger_word: str = "mytrigger"
     width: int = 1024
     height: int = 1024
     steps: int = 50
     cfg: float = 5.0
     seed: int = 42
+    walk_seed: bool = True
+    baseline_control: bool = True
+    max_sequence_length: int = 512
 
 
 @dataclass

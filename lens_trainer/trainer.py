@@ -21,8 +21,13 @@ from lens_trainer.encoding import (
     encode_prompt_features,
     torch_dtype,
 )
+from lens_trainer.lens_patches import apply_lens_training_patches, enable_lens_gradient_checkpointing
 from lens_trainer.lora import attach_lora, save_lora
-from lens_trainer.sampling import run_sampling
+from lens_trainer.sampling import (
+    run_baseline_control_samples,
+    run_sampling,
+    should_sample_at_step,
+)
 from lens_trainer.scheduler import flow_match_noisy_latents, flow_match_target, sample_timesteps
 
 
@@ -58,6 +63,37 @@ def _teardown_cpu_offload(pipe) -> None:
         pipe.remove_all_hooks()
 
 
+def _release_gpu_memory(pipe) -> None:
+    """Move all pipeline modules to CPU and drop cached CUDA allocations."""
+    import gc
+
+    _teardown_cpu_offload(pipe)
+    pipe.text_encoder.to("cpu")
+    pipe.vae.to("cpu")
+    pipe.transformer.to("cpu")
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _attach_text_encoder_offload(text_encoder, device: torch.device):
+    from accelerate import cpu_offload_with_hook
+
+    text_encoder.to("cpu")
+    _, hook = cpu_offload_with_hook(text_encoder, device)
+    return hook
+
+
+def _detach_text_encoder_offload(text_encoder, hook) -> None:
+    if hook is not None:
+        hook.offload()
+    if hasattr(text_encoder, "_hf_hook"):
+        from accelerate.hooks import remove_hook_from_module
+
+        remove_hook_from_module(text_encoder, recurse=True)
+    text_encoder.to("cpu")
+
+
 def prepare_for_training(pipe, lora_model, device: torch.device) -> None:
     """Park TE/VAE on CPU and keep the LoRA-wrapped transformer on the train device."""
     _teardown_cpu_offload(pipe)
@@ -70,20 +106,15 @@ def prepare_for_training(pipe, lora_model, device: torch.device) -> None:
 
 def prepare_for_sampling(pipe, lora_model, device: torch.device, cpu_offload: bool) -> None:
     """Configure the pipeline for mid-training preview generation."""
-    pipe.transformer = lora_model
-    lora_model.eval()
-    if cpu_offload and device.type == "cuda":
-        _teardown_cpu_offload(pipe)
-        pipe.enable_model_cpu_offload()
-        pipe.transformer = lora_model
-    else:
-        _teardown_cpu_offload(pipe)
-        pipe.to(device)
-        pipe.transformer = lora_model
+    from lens_trainer.sampling import prepare_for_inference
+
+    prepare_for_inference(pipe, lora_model, device, low_vram=cpu_offload)
 
 
 def load_lens_pipeline(cfg: TrainerConfig):
     from lens import LensGptOssEncoder, LensPipeline
+
+    apply_lens_training_patches()
 
     dtype = torch_dtype(cfg.model.dtype)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -127,33 +158,73 @@ def precompute_caches(
     pipe,
     dataset: LensDataset,
     cache_text: bool,
+    device: torch.device,
+    dtype: torch.dtype,
+    cpu_offload: bool = False,
+    disable_mxfp4: bool = True,
 ) -> None:
-    dtype = pipe.transformer.dtype
-    for index in tqdm(range(len(dataset)), desc="Precomputing caches"):
-        resolution = dataset.resolution
-        exec_device = pipe._execution_device
+    """Precompute latent and/or text caches on disk.
 
-        if dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None:
-            image = dataset.get_image(index)
-            latents = encode_images_to_latents(
-                pipe,
-                [image],
-                height=resolution,
-                width=resolution,
-                device=exec_device,
-                dtype=dtype,
-            )
-            dataset.save_latent_cache(index, latents[0])
+    CPU offload hooks from ``load_lens_pipeline`` conflict with manually moving
+    the VAE to CUDA (can abort with cublasLt errors). Latent encoding tears
+    those hooks down; text encoding uses TE-only layer offload or CPU.
+    """
+    needs_latents = any(
+        dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None
+        for index in range(len(dataset))
+    )
+    needs_text = cache_text and any(
+        dataset.load_text_cache(index) is None for index in range(len(dataset))
+    )
 
-        if cache_text and dataset.load_text_cache(index) is None:
-            caption = dataset.get_caption(index)
-            features, mask = encode_prompt_features(
-                pipe,
-                [caption],
-                device=exec_device,
-                max_sequence_length=dataset.cfg.max_sequence_length,
-            )
-            dataset.save_text_cache(index, features, mask[0:1].bool())
+    if needs_latents:
+        _release_gpu_memory(pipe)
+        for index in tqdm(range(len(dataset)), desc="Precomputing latents"):
+            if dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None:
+                encoded = _encode_batch_latents(
+                    pipe,
+                    dataset,
+                    index,
+                    dataset.resolution,
+                    device,
+                    dtype,
+                )
+                dataset.save_latent_cache(index, encoded[0])
+        _release_gpu_memory(pipe)
+
+    if needs_text:
+        _release_gpu_memory(pipe)
+
+        # Full-pipeline cpu_offload keeps the DiT (~13GB) in the hook chain and
+        # tries to swap whole components. For cache building we only need the TE.
+        # disable_mxfp4=true dequantizes GPT-OSS to bf16 (~40GB RAM); it never
+        # fits whole on 16GB VRAM, so default to CPU unless the user has MXFP4.
+        encode_on_cpu = disable_mxfp4 or device.type != "cuda"
+        te_hook = None
+        if encode_on_cpu:
+            encode_device = torch.device("cpu")
+        else:
+            encode_device = device
+            if cpu_offload:
+                te_hook = _attach_text_encoder_offload(pipe.text_encoder, device)
+
+        try:
+            for index in tqdm(range(len(dataset)), desc="Precomputing text"):
+                if dataset.load_text_cache(index) is None:
+                    caption = dataset.get_caption(index)
+                    features, mask = encode_prompt_features(
+                        pipe,
+                        [caption],
+                        device=encode_device,
+                        max_sequence_length=dataset.cfg.max_sequence_length,
+                    )
+                    dataset.save_text_cache(index, features, mask[0:1].bool())
+        finally:
+            if te_hook is not None:
+                _detach_text_encoder_offload(pipe.text_encoder, te_hook)
+            _release_gpu_memory(pipe)
+
+    _release_gpu_memory(pipe)
 
 
 def collate_batch(batch: List[dict]) -> dict:
@@ -250,6 +321,20 @@ class LensTrainer:
             pipe,
             dataset,
             cache_text=cfg.model.cache_text_embeddings,
+            device=device,
+            dtype=dtype,
+            cpu_offload=cfg.model.cpu_offload,
+            disable_mxfp4=cfg.model.disable_mxfp4,
+        )
+
+        base_transformer = pipe.transformer
+        run_baseline_control_samples(
+            pipe,
+            base_transformer,
+            cfg.sample,
+            self.samples_dir,
+            device,
+            cfg.model.cpu_offload,
         )
 
         lora_model = attach_lora(
@@ -260,7 +345,7 @@ class LensTrainer:
             target_modules=cfg.lora.target_modules,
         )
         if cfg.train.gradient_checkpointing:
-            lora_model.enable_gradient_checkpointing()
+            enable_lens_gradient_checkpointing(lora_model)
 
         prepare_for_training(pipe, lora_model, device)
 
@@ -318,10 +403,11 @@ class LensTrainer:
                                 f"Missing text cache for sample {index}; "
                                 "re-run with cache_text_embeddings enabled."
                             )
-                        text_features_list.append(
-                            [f.unsqueeze(0) for f in cached_text["features"]]
-                        )
-                        masks.append(cached_text["mask"].unsqueeze(0).bool())
+                        text_features_list.append(cached_text["features"])
+                        mask = cached_text["mask"].bool()
+                        if mask.dim() == 3 and mask.shape[0] == 1:
+                            mask = mask.squeeze(0)
+                        masks.append(mask)
                     else:
                         features, mask = _encode_batch_text(
                             pipe,
@@ -353,7 +439,7 @@ class LensTrainer:
                 )
                 noisy_latents = flow_match_noisy_latents(
                     latents, noise, timesteps, num_train_timesteps
-                )
+                ).to(dtype=dtype)
                 target = flow_match_target(noise, latents)
 
                 pred = lora_model(
@@ -395,19 +481,16 @@ class LensTrainer:
                         },
                     )
 
-                if global_step % cfg.train.sample_every == 0:
-                    prepare_for_sampling(
-                        pipe,
-                        lora_model,
-                        device,
-                        cpu_offload=cfg.model.cpu_offload,
-                    )
+                if should_sample_at_step(global_step, cfg.train):
                     try:
                         run_sampling(
                             pipe,
                             cfg.sample,
                             self.samples_dir,
                             step=global_step,
+                            tag="lora",
+                            device=device,
+                            low_vram=cfg.model.cpu_offload,
                         )
                     finally:
                         prepare_for_training(pipe, lora_model, device)

@@ -14,5 +14,9 @@ pyyaml>=6.0
 tqdm>=4.66.0
 bitsandbytes>=0.45.0
 
+# Optional: MXFP4 text encoder on GPU (model.disable_mxfp4=false).
+# kernels>=0.15 breaks transformers 5.9 imports; pin until upstream catches up.
+# kernels>=0.12.0,<0.15
+
 # Microsoft Lens inference package (required for LensPipeline).
 lens @ git+https://github.com/microsoft/Lens.git

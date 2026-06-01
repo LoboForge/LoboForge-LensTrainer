@@ -32,7 +32,10 @@ def flow_match_noisy_latents(
     num_train_timesteps: int,
 ) -> torch.Tensor:
     """Linear flow-matching interpolation."""
-    sigma = (timesteps.float() / num_train_timesteps).view(-1, 1, 1)
+    sigma = (
+        timesteps.to(device=latents.device, dtype=latents.dtype)
+        / num_train_timesteps
+    ).view(-1, 1, 1)
     return (1.0 - sigma) * latents + sigma * noise
 
 

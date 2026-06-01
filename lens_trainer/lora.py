@@ -9,27 +9,49 @@ import torch
 from peft import LoraConfig, get_peft_model
 from safetensors.torch import save_file
 
+# Lens uses nn.ModuleList([Linear, Identity]) for attn.to_out and GateMLP (w1/w2/w3)
+# for img_mlp/txt_mlp. PEFT only supports leaf Linear modules.
+_LENS_TARGET_ALIASES: dict[str, list[str]] = {
+    "to_out": ["to_out.0"],
+    "img_mlp": ["img_mlp.w1", "img_mlp.w2", "img_mlp.w3"],
+    "txt_mlp": ["txt_mlp.w1", "txt_mlp.w2", "txt_mlp.w3"],
+}
+
 
 def default_target_modules() -> list[str]:
     return [
         "img_qkv",
         "txt_qkv",
-        "to_out",
+        "to_out.0",
         "to_add_out",
-        "img_mlp",
-        "txt_mlp",
+        "img_mlp.w1",
+        "img_mlp.w2",
+        "img_mlp.w3",
+        "txt_mlp.w1",
+        "txt_mlp.w2",
+        "txt_mlp.w3",
         "txt_in",
         "img_in",
         "proj_out",
     ]
 
 
+def normalize_target_modules(target_modules: Iterable[str]) -> list[str]:
+    """Expand Lens-specific module aliases to PEFT-compatible Linear leaf names."""
+    expanded: list[str] = []
+    for name in target_modules:
+        expanded.extend(_LENS_TARGET_ALIASES.get(name, [name]))
+    # Preserve order, drop duplicates.
+    return list(dict.fromkeys(expanded))
+
+
 def attach_lora(transformer, rank: int, alpha: int, dropout: float, target_modules: Iterable[str]):
+    targets = normalize_target_modules(target_modules)
     config = LoraConfig(
         r=rank,
         lora_alpha=alpha,
         lora_dropout=dropout,
-        target_modules=list(target_modules),
+        target_modules=targets,
         bias="none",
     )
     model = get_peft_model(transformer, config)

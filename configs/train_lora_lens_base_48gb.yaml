@@ -24,10 +24,14 @@ lora:
   target_modules:
     - img_qkv
     - txt_qkv
-    - to_out
+    - to_out.0
     - to_add_out
-    - img_mlp
-    - txt_mlp
+    - img_mlp.w1
+    - img_mlp.w2
+    - img_mlp.w3
+    - txt_mlp.w1
+    - txt_mlp.w2
+    - txt_mlp.w3
     - txt_in
     - img_in
     - proj_out
@@ -43,16 +47,29 @@ train:
   guidance_scale: 5.0
   timestep_type: shift
   save_every: 250
-  sample_every: 250
+  sample_every: 100
+  sample_every_early: 50
+  sample_early_until: 500
   seed: 42
   max_grad_norm: 1.0
 
 sample:
-  prompts:
-    - "a photo of [trigger] person in a cafe"
   trigger_word: mytrigger
   width: 1024
   height: 1024
   steps: 50
   cfg: 5.0
   seed: 42
+  walk_seed: true
+  baseline_control: true
+  prompts:
+    - name: stage_full
+      prompt: "a photo of [trigger] ballet dancer on stage, full body, soft spotlight, photorealistic"
+    - name: studio_portrait
+      prompt: "portrait of [trigger], ballet studio, hair in bun, shallow depth of field"
+    - name: arabesque
+      prompt: "[trigger] in arabesque on pointe, clean studio background, studio lighting"
+    - name: cafe_candid
+      prompt: "candid photo of [trigger] in street clothes, natural lighting"
+    - name: sign_test
+      prompt: "[trigger] holding a sign that says 'lens lora test', studio photo"
