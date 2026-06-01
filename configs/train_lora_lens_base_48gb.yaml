@@ -1,25 +1,25 @@
-# Lens-Base LoRA preset for 48GB+ GPUs — less offload, optional TE cache
+# Lens-Base LoRA preset for 48GB+ GPUs (A6000, A100-80GB, etc.)
 job:
-  name: lens-lora-my-subject
-  output_dir: ./output/lens-lora-my-subject
+  name: lens-lora-base-48gb
+  output_dir: ./output/lens-lora-base-48gb
 
 model:
   repo_id: microsoft/Lens-Base
   dtype: bfloat16
   disable_mxfp4: true
   cpu_offload: false
-  cache_text_embeddings: false
+  cache_text_embeddings: true
 
 dataset:
-  folder_path: /path/to/images
+  folder_path: ./dataset
   caption_ext: txt
   resolution: 1024
   cache_latents: true
   max_sequence_length: 512
 
 lora:
-  rank: 16
-  alpha: 16
+  rank: 32
+  alpha: 32
   dropout: 0.0
   target_modules:
     - img_qkv
@@ -34,8 +34,8 @@ lora:
 
 train:
   steps: 2000
-  batch_size: 1
-  gradient_accumulation_steps: 2
+  batch_size: 2
+  gradient_accumulation_steps: 1
   learning_rate: 1.0e-4
   optimizer: adamw8bit
   weight_decay: 0.01

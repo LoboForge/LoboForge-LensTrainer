@@ -55,7 +55,7 @@ def main() -> None:
         raise SystemExit(f"Config not found: {cfg_path}")
 
     cfg = load_config(cfg_path, overrides=overrides or None)
-    trainer = LensTrainer(cfg)
+    trainer = LensTrainer(cfg, config_path=cfg_path)
     trainer.run()
 
 

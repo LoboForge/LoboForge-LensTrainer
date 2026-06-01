@@ -37,15 +37,21 @@ def attach_lora(transformer, rank: int, alpha: int, dropout: float, target_modul
     return model
 
 
+def _normalize_peft_key(key: str) -> str:
+    if key.startswith("base_model.model."):
+        key = key[len("base_model.model.") :]
+    return key
+
+
 def lora_state_dict_for_comfy(model) -> dict[str, torch.Tensor]:
-    """Remap PEFT keys to ComfyUI Lens naming (transformer -> diffusion_model)."""
-    sd = {}
+    """Remap PEFT keys to ComfyUI Lens naming (``diffusion_model.*``)."""
+    sd: dict[str, torch.Tensor] = {}
     for key, value in model.state_dict().items():
         if "lora_" not in key:
             continue
-        if key.startswith("base_model.model."):
-            key = key[len("base_model.model.") :]
-        key = key.replace("transformer.", "diffusion_model.")
+        key = _normalize_peft_key(key)
+        if key.startswith("transformer."):
+            key = key.replace("transformer.", "diffusion_model.", 1)
         if not key.startswith("diffusion_model."):
             key = f"diffusion_model.{key}"
         sd[key] = value.detach().cpu()

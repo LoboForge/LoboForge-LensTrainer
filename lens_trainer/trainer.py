@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import random
+import shutil
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn.functional as F
@@ -51,6 +52,35 @@ def build_optimizer(model, cfg: TrainerConfig):
     )
 
 
+def _teardown_cpu_offload(pipe) -> None:
+    if hasattr(pipe, "remove_all_hooks"):
+        pipe.remove_all_hooks()
+
+
+def prepare_for_training(pipe, lora_model, device: torch.device) -> None:
+    """Park TE/VAE on CPU and keep the LoRA-wrapped transformer on the train device."""
+    _teardown_cpu_offload(pipe)
+    pipe.text_encoder.to("cpu")
+    pipe.vae.to("cpu")
+    lora_model.to(device)
+    lora_model.train()
+    pipe.transformer = lora_model
+
+
+def prepare_for_sampling(pipe, lora_model, device: torch.device, cpu_offload: bool) -> None:
+    """Configure the pipeline for mid-training preview generation."""
+    pipe.transformer = lora_model
+    lora_model.eval()
+    if cpu_offload and device.type == "cuda":
+        _teardown_cpu_offload(pipe)
+        pipe.enable_model_cpu_offload()
+        pipe.transformer = lora_model
+    else:
+        _teardown_cpu_offload(pipe)
+        pipe.to(device)
+        pipe.transformer = lora_model
+
+
 def load_lens_pipeline(cfg: TrainerConfig):
     from lens import LensGptOssEncoder, LensPipeline
 
@@ -94,12 +124,12 @@ def load_lens_pipeline(cfg: TrainerConfig):
 def precompute_caches(
     pipe,
     dataset: LensDataset,
-    device: torch.device,
-    dtype: torch.dtype,
     cache_text: bool,
 ) -> None:
+    dtype = pipe.transformer.dtype
     for index in tqdm(range(len(dataset)), desc="Precomputing caches"):
         resolution = dataset.resolution
+        exec_device = pipe._execution_device
 
         if dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None:
             image = dataset.get_image(index)
@@ -108,7 +138,7 @@ def precompute_caches(
                 [image],
                 height=resolution,
                 width=resolution,
-                device=pipe._execution_device,
+                device=exec_device,
                 dtype=dtype,
             )
             dataset.save_latent_cache(index, latents[0])
@@ -118,10 +148,10 @@ def precompute_caches(
             features, mask = encode_prompt_features(
                 pipe,
                 [caption],
-                device=pipe._execution_device,
+                device=exec_device,
                 max_sequence_length=dataset.cfg.max_sequence_length,
             )
-            dataset.save_text_cache(index, features, mask[0:1])
+            dataset.save_text_cache(index, features, mask[0:1].bool())
 
 
 def collate_batch(batch: List[dict]) -> dict:
@@ -132,31 +162,84 @@ def collate_batch(batch: List[dict]) -> dict:
     }
 
 
+@torch.no_grad()
+def _encode_batch_latents(
+    pipe,
+    dataset: LensDataset,
+    index: int,
+    resolution: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    image = dataset.get_image(index)
+    pipe.vae.to(device)
+    encoded = encode_images_to_latents(
+        pipe,
+        [image],
+        height=resolution,
+        width=resolution,
+        device=device,
+        dtype=dtype,
+    )
+    pipe.vae.to("cpu")
+    return encoded
+
+
+@torch.no_grad()
+def _encode_batch_text(
+    pipe,
+    caption: str,
+    device: torch.device,
+    max_sequence_length: int,
+) -> tuple[list[torch.Tensor], torch.Tensor]:
+    pipe.text_encoder.to(device)
+    features, mask = encode_prompt_features(
+        pipe,
+        [caption],
+        device=device,
+        max_sequence_length=max_sequence_length,
+    )
+    pipe.text_encoder.to("cpu")
+    return [f.unsqueeze(0) for f in features], mask.unsqueeze(0).bool()
+
+
 class LensTrainer:
-    def __init__(self, cfg: TrainerConfig) -> None:
+    def __init__(self, cfg: TrainerConfig, config_path: Optional[Path] = None) -> None:
         self.cfg = cfg
+        self.config_path = config_path
         self.output_dir = resolve_output_dir(cfg)
         self.cache_dir = self.output_dir / "cache"
         self.samples_dir = self.output_dir / "samples"
         self.checkpoints_dir = self.output_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self._write_resolved_config()
+
+    def _write_resolved_config(self) -> None:
+        payload = {
+            "job": self.cfg.job.__dict__,
+            "model": self.cfg.model.__dict__,
+            "dataset": self.cfg.dataset.__dict__,
+            "lora": self.cfg.lora.__dict__,
+            "train": self.cfg.train.__dict__,
+            "sample": self.cfg.sample.__dict__,
+        }
         (self.output_dir / "config.resolved.json").write_text(
-            json.dumps(
-                {
-                    "job": cfg.job.__dict__,
-                    "model": cfg.model.__dict__,
-                    "dataset": cfg.dataset.__dict__,
-                    "lora": cfg.lora.__dict__,
-                    "train": cfg.train.__dict__,
-                    "sample": cfg.sample.__dict__,
-                },
-                indent=2,
-            ),
+            json.dumps(payload, indent=2),
             encoding="utf-8",
         )
+        if self.config_path is not None and self.config_path.exists():
+            shutil.copy2(self.config_path, self.output_dir / "config.yaml")
 
     def run(self) -> None:
         cfg = self.cfg
+        dataset_path = Path(cfg.dataset.folder_path)
+        if not dataset_path.is_dir():
+            raise SystemExit(
+                f"Dataset folder not found: {dataset_path}. "
+                "Set dataset.folder_path in your YAML or pass "
+                "--set dataset.folder_path=/path/to/images"
+            )
+
         set_seed(cfg.train.seed)
         pipe, device, dtype = load_lens_pipeline(cfg)
 
@@ -164,13 +247,8 @@ class LensTrainer:
         precompute_caches(
             pipe,
             dataset,
-            device,
-            dtype,
             cache_text=cfg.model.cache_text_embeddings,
         )
-
-        if cfg.train.gradient_checkpointing:
-            pipe.transformer.enable_gradient_checkpointing()
 
         lora_model = attach_lora(
             pipe.transformer,
@@ -179,7 +257,10 @@ class LensTrainer:
             dropout=cfg.lora.dropout,
             target_modules=cfg.lora.target_modules,
         )
-        lora_model.train()
+        if cfg.train.gradient_checkpointing:
+            lora_model.enable_gradient_checkpointing()
+
+        prepare_for_training(pipe, lora_model, device)
 
         optimizer = build_optimizer(lora_model, cfg)
         dataloader = DataLoader(
@@ -187,12 +268,14 @@ class LensTrainer:
             batch_size=cfg.train.batch_size,
             shuffle=True,
             collate_fn=collate_batch,
-            drop_last=len(dataset) > cfg.train.batch_size,
+            drop_last=cfg.train.batch_size > 1,
         )
 
         num_train_timesteps = pipe.scheduler.config.num_train_timesteps
         global_step = 0
+        accum_step = 0
         epoch = 0
+        loss_log: list[dict] = []
         progress = tqdm(total=cfg.train.steps, desc="Training")
 
         while global_step < cfg.train.steps:
@@ -214,44 +297,48 @@ class LensTrainer:
                     if cached_latent is not None:
                         latents_list.append(cached_latent.unsqueeze(0))
                     else:
-                        image = dataset.get_image(index)
-                        encoded = encode_images_to_latents(
+                        encoded = _encode_batch_latents(
                             pipe,
-                            [image],
-                            height=resolution,
-                            width=resolution,
-                            device=pipe._execution_device,
-                            dtype=dtype,
+                            dataset,
+                            index,
+                            resolution,
+                            device,
+                            dtype,
                         )
                         latents_list.append(encoded)
+                        if cfg.dataset.cache_latents:
+                            dataset.save_latent_cache(index, encoded[0])
 
                     if cfg.model.cache_text_embeddings:
                         cached_text = dataset.load_text_cache(index)
-                        assert cached_text is not None
+                        if cached_text is None:
+                            raise RuntimeError(
+                                f"Missing text cache for sample {index}; "
+                                "re-run with cache_text_embeddings enabled."
+                            )
                         text_features_list.append(
                             [f.unsqueeze(0) for f in cached_text["features"]]
                         )
-                        masks.append(cached_text["mask"].unsqueeze(0))
+                        masks.append(cached_text["mask"].unsqueeze(0).bool())
                     else:
-                        features, mask = encode_prompt_features(
+                        features, mask = _encode_batch_text(
                             pipe,
-                            [batch["caption"][batch_idx]],
-                            device=pipe._execution_device,
-                            max_sequence_length=cfg.dataset.max_sequence_length,
+                            batch["caption"][batch_idx],
+                            device,
+                            cfg.dataset.max_sequence_length,
                         )
-                        text_features_list.append([f.unsqueeze(0) for f in features])
-                        masks.append(mask.unsqueeze(0))
+                        text_features_list.append(features)
+                        masks.append(mask)
 
-                latents = torch.cat(latents_list, dim=0).to(
-                    device=pipe._execution_device, dtype=dtype
-                )
-                mask = torch.cat(masks, dim=0).to(device=pipe._execution_device)
+                latents = torch.cat(latents_list, dim=0).to(device=device, dtype=dtype)
+                mask = torch.cat(masks, dim=0).to(device=device, dtype=torch.bool)
 
                 num_layers = len(text_features_list[0])
                 encoder_hidden_states = [
-                    torch.cat([sample[layer_idx] for sample in text_features_list], dim=0).to(
-                        device=pipe._execution_device, dtype=dtype
-                    )
+                    torch.cat(
+                        [sample[layer_idx] for sample in text_features_list],
+                        dim=0,
+                    ).to(device=device, dtype=dtype)
                     for layer_idx in range(num_layers)
                 ]
 
@@ -259,7 +346,7 @@ class LensTrainer:
                 timesteps = sample_timesteps(
                     latents.shape[0],
                     num_train_timesteps,
-                    device=pipe._execution_device,
+                    device=device,
                     timestep_type=cfg.train.timestep_type,
                 )
                 noisy_latents = flow_match_noisy_latents(
@@ -278,16 +365,19 @@ class LensTrainer:
                 loss = F.mse_loss(pred.float(), target.float())
                 scaled_loss = loss / cfg.train.gradient_accumulation_steps
                 scaled_loss.backward()
+                accum_step += 1
 
-                if (global_step + 1) % cfg.train.gradient_accumulation_steps == 0:
+                if accum_step >= cfg.train.gradient_accumulation_steps:
                     torch.nn.utils.clip_grad_norm_(
                         lora_model.parameters(), cfg.train.max_grad_norm
                     )
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
+                    accum_step = 0
 
                 progress.update(1)
                 progress.set_postfix(loss=f"{loss.item():.4f}", epoch=epoch)
+                loss_log.append({"step": global_step + 1, "loss": loss.item()})
                 global_step += 1
 
                 if global_step % cfg.train.save_every == 0 or global_step == cfg.train.steps:
@@ -304,15 +394,35 @@ class LensTrainer:
                     )
 
                 if global_step % cfg.train.sample_every == 0:
-                    run_sampling(
+                    prepare_for_sampling(
                         pipe,
-                        cfg.sample,
-                        self.samples_dir,
-                        step=global_step,
-                        lora_model=lora_model,
+                        lora_model,
+                        device,
+                        cpu_offload=cfg.model.cpu_offload,
                     )
+                    try:
+                        run_sampling(
+                            pipe,
+                            cfg.sample,
+                            self.samples_dir,
+                            step=global_step,
+                        )
+                    finally:
+                        prepare_for_training(pipe, lora_model, device)
+
+        if accum_step > 0:
+            torch.nn.utils.clip_grad_norm_(
+                lora_model.parameters(), cfg.train.max_grad_norm
+            )
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
 
         progress.close()
+        (self.output_dir / "loss.json").write_text(
+            json.dumps(loss_log, indent=2),
+            encoding="utf-8",
+        )
+
         final_path = self.output_dir / "lora_final.safetensors"
         save_lora(
             lora_model,

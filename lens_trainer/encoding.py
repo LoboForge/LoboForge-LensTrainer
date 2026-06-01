@@ -137,6 +137,6 @@ def encode_prompt_features(
     device: torch.device,
     max_sequence_length: int = 512,
 ) -> Tuple[List[torch.Tensor], torch.Tensor]:
-    """Return multi-layer GPT-OSS features and attention mask."""
+    """Return multi-layer GPT-OSS features and bool attention mask."""
     features, mask = pipe._get_text_embeddings(prompts, max_sequence_length, device)
-    return features, mask
+    return features, mask.bool()

@@ -8,10 +8,11 @@ einops>=0.8.0
 huggingface_hub>=0.28.0
 safetensors>=0.5.0
 pillow>=10.0.0
+torchvision>=0.20.0
 numpy>=1.26.0
 pyyaml>=6.0
 tqdm>=4.66.0
 bitsandbytes>=0.45.0
 
-# Microsoft Lens inference package (required for LensPipeline / encoding).
+# Microsoft Lens inference package (required for LensPipeline).
 lens @ git+https://github.com/microsoft/Lens.git

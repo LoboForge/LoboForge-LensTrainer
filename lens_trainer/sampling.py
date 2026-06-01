@@ -20,26 +20,19 @@ def run_sampling(
     cfg: SampleConfig,
     output_dir: Path,
     step: int,
-    lora_model=None,
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     prompts = apply_trigger(cfg.prompts, cfg.trigger_word)
     generator = torch.Generator(device=pipe._execution_device).manual_seed(cfg.seed)
 
-    transformer = pipe.transformer
-    if lora_model is not None:
-        pipe.transformer = lora_model
-
-    try:
-        result = pipe(
-            prompt=prompts,
-            height=cfg.height,
-            width=cfg.width,
-            num_inference_steps=cfg.steps,
-            guidance_scale=cfg.cfg,
-            generator=generator,
-        )
-        for idx, image in enumerate(result.images):
-            image.save(output_dir / f"step_{step:06d}_{idx:02d}.png")
-    finally:
-        pipe.transformer = transformer
+    result = pipe(
+        prompt=prompts,
+        height=cfg.height,
+        width=cfg.width,
+        num_inference_steps=cfg.steps,
+        guidance_scale=cfg.cfg,
+        generator=generator,
+        max_sequence_length=512,
+    )
+    for idx, image in enumerate(result.images):
+        image.save(output_dir / f"step_{step:06d}_{idx:02d}.png")
