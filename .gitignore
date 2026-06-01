@@ -12,6 +12,10 @@ env/
 *.pth
 output/
 outputs/
+models/*
+!models/.gitkeep
+configs/assemble_weights.local.yaml
+vendor/
 .cache/
 *.log
 .DS_Store

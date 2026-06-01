@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from lens_trainer.config import TrainerConfig, resolve_output_dir
+from lens_trainer.hf_repo import resolve_model_repo
 from lens_trainer.dataset import LensDataset
 from lens_trainer.encoding import (
     encode_images_to_latents,
@@ -97,12 +98,13 @@ def load_lens_pipeline(cfg: TrainerConfig):
     except ImportError:
         pass
 
+    model_repo = resolve_model_repo(cfg.model.repo_id)
     text_encoder = LensGptOssEncoder.from_pretrained(
-        cfg.model.repo_id,
+        model_repo,
         **text_encoder_kwargs,
     )
     pipe = LensPipeline.from_pretrained(
-        cfg.model.repo_id,
+        model_repo,
         text_encoder=text_encoder,
         torch_dtype=dtype,
     )

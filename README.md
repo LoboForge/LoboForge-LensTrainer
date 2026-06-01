@@ -11,9 +11,10 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 ## Setup
 
 ```bash
-cd /media/wrath/AI/LensTrainer-LoboForge
+git clone git@github.com:LoboForge/LoboForge-LensTrainer.git
+cd LoboForge-LensTrainer
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -U pip
 pip install -r requirements.txt
 ```
@@ -74,7 +75,7 @@ Outputs land in `job.output_dir`:
 | Section | Key | Description |
 |---------|-----|-------------|
 | **job** | `name`, `output_dir` | Run name and output directory |
-| **model** | `repo_id` | HF model id (`microsoft/Lens-Base`) |
+| **model** | `repo_id` | Hugging Face id (`microsoft/Lens-Base`) **or** path to a local HF-layout folder (see below) |
 | | `dtype` | `bfloat16`, `float16`, or `float32` |
 | | `disable_mxfp4` | Dequantize GPT-OSS TE to bf16 (required on non-Hopper GPUs) |
 | | `cpu_offload` | Diffusers CPU offload (`text_encoder→transformer→vae`) |
@@ -122,6 +123,59 @@ Saved LoRA files remap PEFT keys for ComfyUI Lens workflows:
 
 Load `lora_final.safetensors` (or a step checkpoint) in your existing ComfyUI Lens workflow alongside the base Lens checkpoint.
 
+## Model weights (Hugging Face layout)
+
+The trainer loads Lens via `LensPipeline.from_pretrained()`, which expects the **standard Hugging Face repo layout**:
+
+```
+models/Lens-Base/
+  model_index.json
+  text_encoder/
+  tokenizer/
+  transformer/
+  vae/
+  scheduler/
+```
+
+### Option A — download everything from the Hub (default)
+
+Set `model.repo_id: microsoft/Lens-Base` (default). On first run, weights download into the Hugging Face cache.
+
+### Option B — assemble locally, skip large re-downloads
+
+If you already have compatible **single-file** DiT and/or VAE safetensors (e.g. from ComfyUI), use the assemble script to build the HF folder and only download the rest (text encoder, tokenizer, configs):
+
+```bash
+# Copy the example and edit paths on your machine
+cp configs/assemble_weights.example.yaml configs/assemble_weights.local.yaml
+
+python scripts/assemble_lens_repo.py --config configs/assemble_weights.local.yaml
+```
+
+Or pass paths on the CLI:
+
+```bash
+python scripts/assemble_lens_repo.py \
+  --output ./models/Lens-Base \
+  --transformer /path/to/lens_bf16.safetensors \
+  --vae /path/to/flux2-vae.safetensors
+```
+
+Local files are **key-validated** before use. By default they are **symlinked** into the HF tree (`--copy` to duplicate instead). The **text encoder always comes from the Hub** — ComfyUI-packaged GPT-OSS files use a different format and are not supported.
+
+Train against the assembled folder:
+
+```bash
+python train.py configs/train_lora_lens_base_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base
+```
+
+Check an existing folder:
+
+```bash
+python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
+```
+
 ## Hugging Face gated access
 
 1. Create/login at https://huggingface.co
@@ -131,4 +185,8 @@ Load `lora_final.safetensors` (or a step checkpoint) in your existing ComfyUI Le
 
 ## License
 
-MIT. Lens model weights and GPT-OSS components remain under their respective Microsoft / OpenAI licenses on Hugging Face.
+**LensTrainer-LoboForge** (this repository’s code) is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, modify, and share it for **noncommercial** purposes at no charge.
+
+**Commercial use** (paid services, resale, bundling in commercial products, etc.) requires a separate license — see [COMMERCIAL.md](COMMERCIAL.md).
+
+Microsoft Lens, GPT-OSS, and other **model weights** are not covered by this license; they remain under their respective terms on Hugging Face and other upstream sources.

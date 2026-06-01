@@ -1,0 +1,12 @@
+# Copy to assemble_weights.local.yaml and set your local paths (file is gitignored).
+# Then: python scripts/assemble_lens_repo.py --config configs/assemble_weights.local.yaml
+
+repo_id: microsoft/Lens-Base
+output_dir: ./models/Lens-Base
+link: true
+
+sources:
+  # Optional: single-file safetensors that match Lens HF components.
+  # Keys are validated before use. Text encoder always downloads from the Hub.
+  transformer: ""
+  vae: ""
