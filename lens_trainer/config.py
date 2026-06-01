@@ -70,6 +70,7 @@ class TrainConfig:
     sample_early_until: int = 500
     seed: int = 42
     max_grad_norm: float = 1.0
+    resume_from: str = ""  # checkpoint path, or "latest" / "auto"
 
 
 @dataclass

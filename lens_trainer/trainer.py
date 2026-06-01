@@ -22,7 +22,7 @@ from lens_trainer.encoding import (
     torch_dtype,
 )
 from lens_trainer.lens_patches import apply_lens_training_patches, enable_lens_gradient_checkpointing
-from lens_trainer.lora import attach_lora, save_lora
+from lens_trainer.lora import attach_lora, load_lora_weights, resolve_resume_checkpoint, save_lora
 from lens_trainer.sampling import (
     run_baseline_control_samples,
     run_sampling,
@@ -336,14 +336,18 @@ class LensTrainer:
         )
 
         base_transformer = pipe.transformer
-        run_baseline_control_samples(
-            pipe,
-            base_transformer,
-            cfg.sample,
-            self.samples_dir,
-            device,
-            cfg.model.cpu_offload,
-        )
+        resume_path = (cfg.train.resume_from or "").strip()
+        if resume_path:
+            print(f"Resume requested — skipping step-0 control samples")
+        elif cfg.sample.baseline_control:
+            run_baseline_control_samples(
+                pipe,
+                base_transformer,
+                cfg.sample,
+                self.samples_dir,
+                device,
+                cfg.model.cpu_offload,
+            )
 
         lora_model = attach_lora(
             pipe.transformer,
@@ -354,6 +358,35 @@ class LensTrainer:
         )
         if cfg.train.gradient_checkpointing:
             enable_lens_gradient_checkpointing(lora_model)
+
+        global_step = 0
+        if resume_path:
+            ckpt = resolve_resume_checkpoint(
+                resume_path,
+                output_dir=self.output_dir,
+                checkpoints_dir=self.checkpoints_dir,
+            )
+            resume_info = load_lora_weights(lora_model, ckpt)
+            global_step = int(resume_info["step"])
+            print(
+                f"Resumed from {ckpt.name} at step {global_step} "
+                f"({resume_info['loaded_keys']} LoRA tensors)"
+            )
+            ckpt_rank = resume_info.get("rank")
+            ckpt_alpha = resume_info.get("alpha")
+            if ckpt_rank is not None and str(ckpt_rank) != str(cfg.lora.rank):
+                print(
+                    f"Warning: checkpoint rank={ckpt_rank} differs from config rank={cfg.lora.rank}"
+                )
+            if ckpt_alpha is not None and str(ckpt_alpha) != str(cfg.lora.alpha):
+                print(
+                    f"Warning: checkpoint alpha={ckpt_alpha} differs from config alpha={cfg.lora.alpha}"
+                )
+            if global_step >= cfg.train.steps:
+                raise SystemExit(
+                    f"Checkpoint is already at step {global_step}, "
+                    f"but train.steps={cfg.train.steps}. Increase train.steps to continue."
+                )
 
         prepare_for_training(pipe, lora_model, device)
 
@@ -367,11 +400,21 @@ class LensTrainer:
         )
 
         num_train_timesteps = pipe.scheduler.config.num_train_timesteps
-        global_step = 0
         accum_step = 0
         epoch = 0
         loss_log: list[dict] = []
-        progress = tqdm(total=cfg.train.steps, desc="Training")
+        loss_path = self.output_dir / "loss.json"
+        if loss_path.exists():
+            try:
+                loss_log = json.loads(loss_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                print(f"Warning: could not parse existing {loss_path.name}, starting fresh loss log")
+
+        progress = tqdm(
+            total=cfg.train.steps,
+            initial=global_step,
+            desc="Training",
+        )
 
         while global_step < cfg.train.steps:
             epoch += 1

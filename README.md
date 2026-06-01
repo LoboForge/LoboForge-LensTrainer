@@ -113,19 +113,60 @@ Supported images: `.jpg`, `.jpeg`, `.png`, `.webp`. Caption extension is configu
 
 Include your trigger token in captions (e.g. `a photo of mytrigger person standing in a park`). Set `sample.trigger_word` in the config to match.
 
-Corrupt or unreadable images are skipped at startup with a log line (see `cache/manifest.json` → `skipped`).
+Corrupt or unreadable images are **skipped at startup** (logged to the console and recorded in `cache/manifest.json` under `skipped`). Training continues with valid pairs only.
+
+## Sampling during training
+
+Before the first training step, the trainer can render a **step-0 control grid** on the **base model** (no LoRA) using every entry in `sample.prompts`. Files look like:
+
+```
+samples/step_000000_control_full_body_front.png
+samples/step_000000_control_loboforge_sign.png
+```
+
+During training, the same prompt list is rendered again as `step_{NNNNNN}_lora_*.png` so you can compare base vs LoRA side-by-side (same filename suffix).
+
+| Key | Purpose |
+|-----|---------|
+| `sample.prompts` | Named list — string or `{name, prompt}`; `[trigger]` → `sample.trigger_word` |
+| `sample.baseline_control` | Run step-0 control grid before training (default `true`) |
+| `train.sample_every` | Sample every N steps after the early phase |
+| `train.sample_every_early` | Sample every N steps until `sample_early_until` (set `0` to disable) |
+| `train.sample_early_until` | Step cap for the early sample cadence |
+
+On **16GB GPUs**, sampling encodes prompts on **CPU** and swaps **DiT + VAE** onto the GPU one at a time so training does not OOM. Expect ~1–2 minutes per preview image.
+
+**Skip step-0 control** when you already have control PNGs (re-run or resume):
+
+```bash
+--set sample.baseline_control=false
+```
 
 ## Example run
 
-Character LoRA (LoboForge mascot Willow preset):
+### Character LoRA — Willow (LoboForge mascot)
+
+Preset: `configs/train_lora_willow_24gb.yaml` — 2000 steps, samples every 100, rank 8, trigger `Willow`.
+
+**First run** (builds caches + step-0 control + trains):
 
 ```bash
 python train.py configs/train_lora_willow_24gb.yaml \
   --set model.repo_id=./models/Lens-Base \
-  --set dataset.folder_path=/path/to/willow/images
+  --set dataset.folder_path=/path/to/willow/images \
+  --set job.output_dir=./output/lens-lora-willow
 ```
 
-Generic override example:
+**Re-run without re-rendering control** (caches hit, skip step-0):
+
+```bash
+python train.py configs/train_lora_willow_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set job.output_dir=./output/lens-lora-willow \
+  --set sample.baseline_control=false
+```
+
+### Generic subject/style LoRA
 
 ```bash
 python train.py configs/train_lora_lens_base_24gb.yaml \
@@ -158,23 +199,23 @@ Before training starts, the trainer can build **disk caches** so the VAE and GPT
 
 Text precompute on CPU is **not** because latents need CPU — latents already ran on GPU. It is because `disable_mxfp4: true` expands the Hub TE to full bf16 (~40GB in RAM), which does not fit whole on a 16GB GPU. That cost is **one-time per dataset/output folder**. Training then only reads cached tensors and trains the DiT LoRA.
 
-### Re-use caches on later runs
+### Re-use disk caches on later runs
 
 Caches live under **`job.output_dir/cache/`**. If you start another run with the **same** `output_dir`, dataset, captions, and `resolution`, the trainer **skips** any step that already has a matching `.pt` file and goes straight to training.
 
 ```bash
 # First run: pays precompute + training
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/media/wrath/AI/Training/Ballet \
+  --set dataset.folder_path=/path/to/dataset \
   --set job.output_dir=./output/lens-lora-ballet \
   --set sample.trigger_word=ballet
 
-# Resume or tweak training only — reuses ./output/lens-lora-ballet/cache/
+# Same output_dir — reuses cache/ (still starts training from step 0 unless resume_from is set)
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/media/wrath/AI/Training/Ballet \
+  --set dataset.folder_path=/path/to/dataset \
   --set job.output_dir=./output/lens-lora-ballet \
   --set train.steps=3000 \
-  --set lora.rank=16
+  --set sample.baseline_control=false
 ```
 
 Keep the same `job.output_dir` when you want to avoid re-encoding. Copy or symlink the whole output folder to train a new run from existing caches.
@@ -237,6 +278,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | | `timestep_type` | `shift` (logit-normal biased) or `uniform` |
 | | `save_every`, `sample_every` | Checkpoint and preview interval (after early phase) |
 | | `sample_every_early`, `sample_early_until` | Denser previews early (e.g. every 50 until step 500) |
+| | `resume_from` | Resume LoRA weights + step (`path`, `latest`, or `auto`); skips step-0 control |
 | **sample** | `prompts` | Named prompt list (`[trigger]` → `trigger_word`); string or `{name, prompt}` |
 | | `baseline_control` | Step-0 control grid on base model (same prompt list, `step_000000_control_*`) |
 | | `walk_seed` | Increment seed per prompt so samples are not identical |
@@ -247,7 +289,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | File | Target | Notes |
 |------|--------|-------|
 | `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Offload + caches; `disable_mxfp4: true` by default. On RTX 50xx add `--set model.disable_mxfp4=false` for faster text precompute |
-| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | Character LoRA preset (LoboForge mascot Willow, 100-step smoke test) |
+| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | Character LoRA preset (LoboForge mascot Willow) |
 | `configs/train_lora_lens_base_48gb.yaml` | 48GB+ | No offload, batch 2, rank 32 |
 
 Override any field at runtime:
@@ -255,6 +297,63 @@ Override any field at runtime:
 ```bash
 python train.py configs/train_lora_lens_base_24gb.yaml --set train.steps=500 --set lora.rank=8
 ```
+
+## Resume from checkpoint
+
+**v1 resume** loads **LoRA weights + step counter** from a prior checkpoint. The optimizer restarts fresh (no momentum carry-over). Step-0 control is **skipped automatically** when `train.resume_from` is set. Existing `loss.json` entries are **appended**, not overwritten.
+
+### When to use what
+
+| Situation | What to do |
+|-----------|------------|
+| Same dataset, caches already built, **restart training from scratch** | Same `output_dir`, `sample.baseline_control=false`, no `resume_from` |
+| Training **interrupted** (power loss, crash) after a checkpoint was saved | `train.resume_from=latest` (or explicit path), same `output_dir` + LoRA config |
+| **Extend** a finished run past the original `train.steps` | Raise `train.steps`, `train.resume_from=latest` |
+
+### Config / CLI
+
+```yaml
+train:
+  resume_from: latest   # or ./output/.../checkpoints/lora_step_000250.safetensors
+```
+
+```bash
+--set train.resume_from=latest
+--set train.resume_from=./output/lens-lora-willow/checkpoints/lora_step_000250.safetensors
+```
+
+`latest` / `auto` picks the highest step among:
+
+- `checkpoints/lora_step_*.safetensors`
+- `lora_final.safetensors` (uses `step` from file metadata)
+
+### Full resume example
+
+```bash
+python train.py configs/train_lora_willow_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set job.output_dir=./output/lens-lora-willow \
+  --set train.steps=2000 \
+  --set train.resume_from=latest
+```
+
+Training continues at **checkpoint step + 1** until `train.steps`. Samples and saves follow the normal schedule from there (e.g. next sample at 300 if you resume from 250 with `sample_every: 100`).
+
+### Requirements and limits
+
+- Use the **same** `lora.rank`, `lora.alpha`, and `lora.target_modules` as the original run (warnings are printed on mismatch).
+- Checkpoints are **ComfyUI-compatible** `safetensors` — the same files you load in ComfyUI are what training resumes from.
+- **Not saved in v1:** optimizer state, RNG state, exact dataloader order.
+- A checkpoint must exist (`save_every` must have fired at least once). If you stopped before the first save, restart without `resume_from`.
+
+### What gets skipped on resume
+
+| Step | Fresh run | `resume_from` set |
+|------|-----------|-------------------|
+| Latent/text cache precompute | Runs if missing | Skipped when cache hits |
+| Step-0 control samples | Yes (unless `baseline_control: false`) | **Skipped** |
+| LoRA init | Random | **Loaded from checkpoint** |
+| Training loop | Step 0 → N | Step **checkpoint** → N |
 
 ## Training details
 
@@ -376,6 +475,17 @@ pip uninstall -y kernels kernels-data
 ```
 
 Then re-run `train.py`.
+
+### Corrupt or truncated training images
+
+At dataset scan time each image is fully decoded; bad files are skipped with a console message:
+
+```
+Skipping Willow_00039_.png: image file is truncated
+Dataset ready: 41 valid pair(s), 1 skipped.
+```
+
+See `output/.../cache/manifest.json` → `skipped` for the full list. Fix or replace the file and delete its cache entries (or the whole `cache/` folder) if you add it back later.
 
 ## License
 
