@@ -2,16 +2,78 @@
 
 Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/microsoft/Lens-Base). Train subject/style LoRAs from a folder of images + captions, export ComfyUI-compatible weights, and preview samples during training.
 
+## Quickstart (TL;DR)
+
+**Clone, install, train:**
+
+```bash
+git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
+cd LoboForge-LensTrainer
+./scripts/quickstart.sh
+source .venv/bin/activate
+huggingface-cli login   # once — accept microsoft/Lens-Base on the Hub first
+
+python train.py configs/train_lora_lens_base_24gb.yaml \
+  --set dataset.folder_path=/path/to/your/dataset \
+  --set sample.trigger_word=your_trigger \
+  --set job.output_dir=./output/my-lora
+```
+
+**Or one curl (clone + venv + pip):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/quickstart.sh | bash
+cd ~/LoboForge-LensTrainer && source .venv/bin/activate
+# then huggingface-cli login and the python train.py command above
+```
+
+**Auto-train after install** (optional):
+
+```bash
+DATASET_PATH=/path/to/images TRIGGER_WORD=Willow OUTPUT_DIR=./output/willow \
+  bash scripts/quickstart.sh
+```
+
+Done when you have `job.output_dir/lora_final.safetensors`. See [Dataset layout](#dataset-layout) and [VRAM](#vram--system-requirements) below before your first run.
+
 ## Requirements
 
 - Python 3.11+
-- NVIDIA GPU with CUDA (24GB preset tested target; 48GB preset for larger batches)
+- **GPU:** NVIDIA CUDA — see [VRAM](#vram--system-requirements)
+- **RAM:** 32GB+ system memory recommended (text cache precompute with default settings)
 - Hugging Face account with access to gated models (`microsoft/Lens-Base`, GPT-OSS weights)
+
+### VRAM & system requirements
+
+Lens-Base’s DiT is ~**13.4GB** in bf16. This trainer keeps the text encoder and VAE off GPU during training by caching latents and captions to disk — that’s how 16GB cards work at all.
+
+| | Minimum | Recommended |
+|---|---------|-------------|
+| **GPU VRAM** | **16GB** (RTX 4060 Ti 16GB, 5060 Ti, etc.) | **24GB** (RTX 3090/4090, A5000, …) |
+| **System RAM** | **32GB** | **64GB** (faster / safer text precompute) |
+| **Preset** | `configs/train_lora_lens_base_24gb.yaml` | same, or `48gb` if you have headroom |
+
+**16GB path (what we test on):** `cpu_offload: true`, disk caches, `gradient_checkpointing: true`, `batch_size: 1`, `disable_mxfp4: true` (text precompute on CPU once). Training holds the full DiT on GPU — there is no smaller mode today without architectural changes.
+
+**Below 16GB VRAM:** not supported for training with Lens-Base using this repo.
+
+**48GB+:** use `configs/train_lora_lens_base_48gb.yaml` — no CPU offload, batch 2, rank 32.
+
+Peak VRAM by phase (16GB preset):
+
+| Phase | On GPU | Rough VRAM |
+|-------|--------|------------|
+| Training loop | DiT + LoRA only | ~14–16GB |
+| Latent precompute | VAE only | ~2–4GB |
+| Text precompute (default) | nothing (CPU) | ~0GB |
+| Mid-run samples | DiT + VAE swap | ~14–16GB |
 
 ## Setup
 
+Manual install (if you skip `quickstart.sh`):
+
 ```bash
-git clone git@github.com:LoboForge/LoboForge-LensTrainer.git
+git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
 cd LoboForge-LensTrainer
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -51,9 +113,19 @@ Supported images: `.jpg`, `.jpeg`, `.png`, `.webp`. Caption extension is configu
 
 Include your trigger token in captions (e.g. `a photo of mytrigger person standing in a park`). Set `sample.trigger_word` in the config to match.
 
-## Quick start
+Corrupt or unreadable images are skipped at startup with a log line (see `cache/manifest.json` → `skipped`).
 
-Edit `dataset.folder_path` in a preset (or pass overrides):
+## Example run
+
+Character LoRA (LoboForge mascot Willow preset):
+
+```bash
+python train.py configs/train_lora_willow_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set dataset.folder_path=/path/to/willow/images
+```
+
+Generic override example:
 
 ```bash
 python train.py configs/train_lora_lens_base_24gb.yaml \
@@ -175,6 +247,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | File | Target | Notes |
 |------|--------|-------|
 | `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Offload + caches; `disable_mxfp4: true` by default. On RTX 50xx add `--set model.disable_mxfp4=false` for faster text precompute |
+| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | Character LoRA preset (LoboForge mascot Willow, 100-step smoke test) |
 | `configs/train_lora_lens_base_48gb.yaml` | 48GB+ | No offload, batch 2, rank 32 |
 
 Override any field at runtime:

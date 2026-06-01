@@ -1,0 +1,77 @@
+# LoboForge mascot Willow — character LoRA on Lens-Base (16GB / cpu_offload preset)
+job:
+  name: lens-lora-willow
+  output_dir: ./output/lens-lora-willow
+
+model:
+  repo_id: microsoft/Lens-Base
+  dtype: bfloat16
+  disable_mxfp4: true          # false on RTX 50xx: --set model.disable_mxfp4=false
+  cpu_offload: true
+  cache_text_embeddings: true
+
+dataset:
+  folder_path: /home/wrath/Documents/LoboForge/Willow/WillowLoRAResized
+  caption_ext: txt
+  resolution: 1024
+  cache_latents: true
+  max_sequence_length: 512
+
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.0
+  target_modules:
+    - img_qkv
+    - txt_qkv
+    - to_out.0
+    - to_add_out
+    - img_mlp.w1
+    - img_mlp.w2
+    - img_mlp.w3
+    - txt_mlp.w1
+    - txt_mlp.w2
+    - txt_mlp.w3
+    - txt_in
+    - img_in
+    - proj_out
+
+train:
+  steps: 100
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-4
+  optimizer: adamw8bit
+  weight_decay: 0.01
+  gradient_checkpointing: true
+  guidance_scale: 5.0
+  timestep_type: shift
+  save_every: 50
+  sample_every: 50
+  sample_every_early: 25
+  sample_early_until: 100
+  seed: 42
+  max_grad_norm: 1.0
+
+sample:
+  trigger_word: Willow
+  width: 1024
+  height: 1024
+  steps: 50
+  cfg: 5.0
+  seed: 42
+  walk_seed: true
+  baseline_control: true
+
+  # Mix of exact training scene lines + LoboForge-branded prompts for repo examples.
+  prompts:
+    - name: full_body_front
+      prompt: "[trigger],full body frontal view"
+    - name: closeup_face
+      prompt: "[trigger],closeup face, white backgound,"
+    - name: beach
+      prompt: "[trigger],A wide shot of the character sitting on a rock at the beach."
+    - name: loboforge_sign
+      prompt: "[trigger] holding a sign that says 'LoboForge', full body, studio lighting, sharp focus on the sign"
+    - name: loboforge_wall_logo
+      prompt: "[trigger], full body frontal view, standing in a studio with a large LoboForge logo on the wall behind her, soft studio lighting"

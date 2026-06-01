@@ -181,15 +181,19 @@ def precompute_caches(
         _release_gpu_memory(pipe)
         for index in tqdm(range(len(dataset)), desc="Precomputing latents"):
             if dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None:
-                encoded = _encode_batch_latents(
-                    pipe,
-                    dataset,
-                    index,
-                    dataset.resolution,
-                    device,
-                    dtype,
-                )
-                dataset.save_latent_cache(index, encoded[0])
+                try:
+                    encoded = _encode_batch_latents(
+                        pipe,
+                        dataset,
+                        index,
+                        dataset.resolution,
+                        device,
+                        dtype,
+                    )
+                    dataset.save_latent_cache(index, encoded[0])
+                except (OSError, RuntimeError, ValueError) as exc:
+                    name = dataset.items[index].image_path.name
+                    print(f"Skipping latent cache for {name}: {exc}")
         _release_gpu_memory(pipe)
 
     if needs_text:
@@ -211,14 +215,18 @@ def precompute_caches(
         try:
             for index in tqdm(range(len(dataset)), desc="Precomputing text"):
                 if dataset.load_text_cache(index) is None:
-                    caption = dataset.get_caption(index)
-                    features, mask = encode_prompt_features(
-                        pipe,
-                        [caption],
-                        device=encode_device,
-                        max_sequence_length=dataset.cfg.max_sequence_length,
-                    )
-                    dataset.save_text_cache(index, features, mask[0:1].bool())
+                    try:
+                        caption = dataset.get_caption(index)
+                        features, mask = encode_prompt_features(
+                            pipe,
+                            [caption],
+                            device=encode_device,
+                            max_sequence_length=dataset.cfg.max_sequence_length,
+                        )
+                        dataset.save_text_cache(index, features, mask[0:1].bool())
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        name = dataset.items[index].image_path.name
+                        print(f"Skipping text cache for {name}: {exc}")
         finally:
             if te_hook is not None:
                 _detach_text_encoder_offload(pipe.text_encoder, te_hook)

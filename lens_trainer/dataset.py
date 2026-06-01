@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import torch
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from torch.utils.data import Dataset
 
 from lens_trainer.config import DatasetConfig
@@ -24,8 +24,31 @@ class DatasetItem:
     caption: str
 
 
-def discover_items(folder: Path, caption_ext: str) -> List[DatasetItem]:
+@dataclass(frozen=True)
+class SkippedImage:
+    path: Path
+    reason: str
+
+
+def validate_image_file(path: Path) -> None:
+    """Raise if the file is missing, empty, or not a readable RGB image."""
+    if not path.is_file():
+        raise FileNotFoundError("file not found")
+    if path.stat().st_size == 0:
+        raise OSError("empty file")
+
+    with Image.open(path) as img:
+        img.load()
+        rgb = img.convert("RGB")
+        width, height = rgb.size
+        if width < 1 or height < 1:
+            raise OSError(f"invalid dimensions: {width}x{height}")
+
+
+def discover_items(folder: Path, caption_ext: str) -> tuple[List[DatasetItem], List[SkippedImage]]:
     items: List[DatasetItem] = []
+    skipped: List[SkippedImage] = []
+
     for image_path in sorted(folder.rglob("*")):
         if not image_path.is_file():
             continue
@@ -36,14 +59,28 @@ def discover_items(folder: Path, caption_ext: str) -> List[DatasetItem]:
             continue
         caption = caption_path.read_text(encoding="utf-8").strip()
         if not caption:
+            skipped.append(SkippedImage(image_path, "empty caption"))
+            print(f"Skipping {image_path.name}: empty caption")
+            continue
+        try:
+            validate_image_file(image_path)
+        except (OSError, UnidentifiedImageError, FileNotFoundError, ValueError) as exc:
+            skipped.append(SkippedImage(image_path, str(exc)))
+            print(f"Skipping {image_path.name}: {exc}")
             continue
         items.append(DatasetItem(image_path=image_path, caption=caption))
+
     if not items:
-        raise ValueError(
-            f"No image/caption pairs found under {folder}. "
+        detail = (
+            f"No valid image/caption pairs found under {folder}. "
             f"Expected image.jpg + image.{caption_ext} side by side."
         )
-    return items
+        if skipped:
+            detail += f" Skipped {len(skipped)} invalid pair(s)."
+        raise ValueError(detail)
+    if skipped:
+        print(f"Dataset ready: {len(items)} valid pair(s), {len(skipped)} skipped.")
+    return items, skipped
 
 
 class LensDataset(Dataset):
@@ -54,7 +91,7 @@ class LensDataset(Dataset):
     ) -> None:
         self.cfg = cfg
         self.folder = Path(cfg.folder_path)
-        self.items = discover_items(self.folder, cfg.caption_ext)
+        self.items, self.skipped = discover_items(self.folder, cfg.caption_ext)
         self.resolution = int(cfg.resolution)
         self.cache_dir = cache_dir
         if self.cache_dir is not None:
@@ -66,6 +103,10 @@ class LensDataset(Dataset):
             "folder": str(self.folder),
             "resolution": self.resolution,
             "count": len(self.items),
+            "skipped": [
+                {"image": str(entry.path), "reason": entry.reason}
+                for entry in self.skipped
+            ],
             "items": [
                 {"image": str(it.image_path), "caption": it.caption}
                 for it in self.items
@@ -88,7 +129,14 @@ class LensDataset(Dataset):
 
     def get_image(self, index: int) -> Image.Image:
         item = self.items[index]
-        return Image.open(item.image_path).convert("RGB")
+        try:
+            with Image.open(item.image_path) as img:
+                img.load()
+                return img.convert("RGB")
+        except (OSError, UnidentifiedImageError, ValueError) as exc:
+            raise RuntimeError(
+                f"Failed to load validated image {item.image_path}: {exc}"
+            ) from exc
 
     def get_caption(self, index: int) -> str:
         return self.items[index].caption
