@@ -1,0 +1,58 @@
+# Lens-Base LoRA preset for ~24GB GPUs (A100 24GB, RTX 4090, etc.)
+job:
+  name: lens-lora-my-subject
+  output_dir: ./output/lens-lora-my-subject
+
+model:
+  repo_id: microsoft/Lens-Base
+  dtype: bfloat16
+  disable_mxfp4: true          # required on A100/V100; set false on Hopper if desired
+  cpu_offload: true            # text_encoder -> transformer -> vae
+  cache_text_embeddings: true  # precompute GPT-OSS features to disk
+
+dataset:
+  folder_path: /path/to/images
+  caption_ext: txt
+  resolution: 1024
+  cache_latents: true
+  max_sequence_length: 512
+
+lora:
+  rank: 16
+  alpha: 16
+  dropout: 0.0
+  target_modules:
+    - img_qkv
+    - txt_qkv
+    - to_out
+    - to_add_out
+    - img_mlp
+    - txt_mlp
+    - txt_in
+    - img_in
+    - proj_out
+
+train:
+  steps: 2000
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-4
+  optimizer: adamw8bit
+  weight_decay: 0.01
+  gradient_checkpointing: true
+  guidance_scale: 5.0
+  timestep_type: shift
+  save_every: 250
+  sample_every: 250
+  seed: 42
+  max_grad_norm: 1.0
+
+sample:
+  prompts:
+    - "a photo of [trigger] person in a cafe"
+  trigger_word: mytrigger
+  width: 1024
+  height: 1024
+  steps: 50
+  cfg: 5.0
+  seed: 42

@@ -1,0 +1,18 @@
+[project]
+name = "lens-trainer-loboforge"
+version = "0.1.0"
+description = "Config-driven LoRA trainer for Microsoft Lens text-to-image models"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[project.scripts]
+lens-train = "train:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lens_trainer*"]
