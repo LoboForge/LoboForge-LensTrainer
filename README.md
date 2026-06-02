@@ -2,7 +2,7 @@
 
 Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/microsoft/Lens-Base). Train subject/style LoRAs from a folder of images + captions, export ComfyUI-compatible weights, and preview samples during training.
 
-![LensTrainer training run in the terminal](LensTrainerScreen.png)
+![LensTrainer training run in the terminal](LoboFogeLensTrainerScreen.png)
 
 ## Quickstart (TL;DR)
 
@@ -455,6 +455,17 @@ Training continues at **checkpoint step + 1** until `train.steps`. Samples and s
 | Training loop | Step 0 → N | Step **checkpoint** → N |
 
 ## Training details
+
+### Upstream code (not a fork of another LoRA trainer)
+
+| Component | Source |
+|-----------|--------|
+| DiT, VAE, pipeline, `transformer/config.json` | Official [microsoft/Lens](https://github.com/microsoft/Lens) + Hugging Face `microsoft/Lens-Base` |
+| Training loop, caches, LoRA export, resume, sampling | **This repo** (LensTrainer-LoboForge) |
+
+We do **not** ship a modified Lens checkpoint or a copied config. The only runtime change to Lens is an optional `forward` hook in `lens_trainer/lens_patches.py` so gradient checkpointing fits on 16GB cards. `LensTransformer2DModel.__init__` is **not** patched, so Diffusers should load every field in `config.json` without “will be ignored” warnings.
+
+If you still see that warning, you are likely on an older commit that wrapped `__init__` — update this repo and re-run.
 
 - **Base model:** `microsoft/Lens-Base` (not RL/Turbo variants)
 - **Loss:** Flow-matching MSE with target `noise - latents`
