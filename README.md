@@ -176,7 +176,9 @@ python train.py configs/train_lora_lens_base_24gb.yaml \
 
 Outputs land in `job.output_dir`:
 
-- `checkpoints/lora_step_*.safetensors` — periodic LoRA saves
+- `checkpoints/lora_step_*.safetensors` — periodic LoRA saves (never auto-deleted)
+- `lora_latest.safetensors` — copy of the most recent scheduled save (for `resume_from: latest`)
+- `lora_emergency.safetensors` — written on Ctrl+C interrupt
 - `lora_final.safetensors` — final weights (ComfyUI key format)
 - `samples/` — preview PNGs (`step_000000_control_*` baseline on full prompt list, then `step_*_lora_*` during training)
 - `cache/` — optional latent and text-embedding caches (see **Caching** below)
@@ -365,6 +367,33 @@ Training continues at **checkpoint step + 1** until `train.steps`. Samples and s
 - **Latents:** FLUX.2 VAE encode → BN normalize → 2×2 patchify → sequence `[B, H×W, 128]`
 
 Only the DiT transformer is trained; VAE and text encoder stay frozen.
+
+## Terminal colors
+
+Long runs use category-colored log lines and tqdm bars so sampling, training, and saves are easy to scan.
+
+| Category | tqdm / tag | Color |
+|----------|------------|--------|
+| Training loop | `Training` bar | Magenta |
+| Latent cache | `Precomputing latents` | Cyan |
+| Text cache | `Precomputing text` | Blue |
+| Sampling | `[sample]` | Blue |
+| Checkpoints / resume | `[save]`, `[resume]` | Green |
+| Dataset | `[data]` | Bright cyan |
+| Warnings | `[warn]` | Yellow |
+| Interrupt | `[error]` | Red |
+| Job header | (banner line) | Bright yellow |
+
+Colors are enabled when stdout is a TTY. Disable with either:
+
+```bash
+export NO_COLOR=1              # standard — disables colors in most CLI tools
+export LENS_TRAINER_COLOR=0    # trainer-only off switch
+```
+
+Piped logs and redirected output stay plain text automatically.
+
+Each run always prints the **LoboForge** wordmark (Unicode block art), project URL, and run metadata (for log attribution). Colors follow the rules above; the banner itself is not optional.
 
 ## ComfyUI export
 

@@ -12,8 +12,8 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from lens_trainer.config import TrainerConfig, resolve_output_dir
+from lens_trainer.branding import print_startup_banner
 from lens_trainer.console import (
-    banner,
     checkpoint as log_checkpoint,
     error as log_error,
     resume as log_resume,
@@ -421,9 +421,7 @@ class LensTrainer:
 
     def run(self) -> None:
         cfg = self.cfg
-        banner(
-            f"LensTrainer · {cfg.job.name} · {cfg.train.steps} steps → {self.output_dir}"
-        )
+        print_startup_banner(cfg, output_dir=str(self.output_dir))
         dataset_path = Path(cfg.dataset.folder_path)
         if not dataset_path.is_dir():
             raise SystemExit(
