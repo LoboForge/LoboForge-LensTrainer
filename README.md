@@ -2,6 +2,8 @@
 
 Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/microsoft/Lens-Base). Train subject/style LoRAs from a folder of images + captions, export ComfyUI-compatible weights, and preview samples during training.
 
+![LensTrainer training run in the terminal](LensTrainerScreen.png)
+
 ## Quickstart (TL;DR)
 
 **Clone, install, train:**
@@ -115,6 +117,17 @@ Include your trigger token in captions (e.g. `a photo of mytrigger person standi
 
 Corrupt or unreadable images are **skipped at startup** (logged to the console and recorded in `cache/manifest.json` under `skipped`). Training continues with valid pairs only.
 
+### Training resolution (no stretching)
+
+| `dataset.resolution` | Behavior |
+|----------------------|----------|
+| **Positive** (e.g. `1024`) | Every image is resized to a **square** `resolution × resolution` (legacy / uniform datasets). |
+| **`0` (auto)** | Each image keeps its **aspect ratio** at native size, snapped to multiples of 16. Mixed sizes work with `train.batch_size: 1`. |
+
+Optional `dataset.max_training_edge` (auto mode only): if the long edge exceeds this value, the image is scaled down before snapping (e.g. `1536` on 16GB VRAM for very large sources).
+
+At startup the trainer logs how many size buckets were found. Preview size follows the dataset when `sample.height` / `sample.width` are **`0`**.
+
 ## Sampling during training
 
 Before the first training step, the trainer can render a **step-0 control grid** on the **base model** (no LoRA) using every entry in `sample.prompts`. Files look like:
@@ -143,6 +156,64 @@ On **16GB GPUs**, sampling encodes prompts on **CPU** and swaps **DiT + VAE** on
 ```
 
 ## Example run
+
+Copy a block below, change paths and names, then run from the repo root with your venv active.
+
+### Dual-character LoRA (DualCharacterLoras)
+
+Preset: `configs/train_lora_dual_character_24gb.yaml` — **8000** steps, **48** image/caption pairs at **1024×1024**, auto resolution (`resolution: 0`), sample prompts copied from your `.txt` captions.
+
+**Requirements before training:**
+
+- Folder of paired files: `item_00104_.png` + `item_00104_.txt` (same basename, extension from `caption_ext`)
+- Hugging Face login + `microsoft/Lens-Base` access
+- **16GB+ VRAM** with the 24GB preset (`cpu_offload`, caches, `batch_size: 1`)
+- Local Lens weights optional: `--set model.repo_id=./models/Lens-Base`
+
+**First run** (builds `cache/`, step-0 control grid, trains 8000 steps):
+
+```bash
+cd /media/wrath/AI/LensTrainer-LoboForge
+source .venv/bin/activate   # or your ComfyUI venv with requirements installed
+export PYTHONPATH="/media/wrath/AI/LensTrainer-LoboForge/vendor/Lens:${PYTHONPATH}"
+
+python train.py configs/train_lora_dual_character_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base
+```
+
+**Re-run** (reuse caches, skip step-0 control):
+
+```bash
+python train.py configs/train_lora_dual_character_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set sample.baseline_control=false
+```
+
+**Resume** after a checkpoint:
+
+```bash
+python train.py configs/train_lora_dual_character_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set train.resume_from=latest \
+  --set sample.baseline_control=false
+```
+
+**Useful overrides** (same command, add `--set` flags):
+
+| Goal | Example |
+|------|---------|
+| Different dataset folder | `--set dataset.folder_path=/path/to/images` |
+| Different output dir | `--set job.output_dir=./output/my-run` |
+| Fewer/more steps | `--set train.steps=6000` |
+| Save checkpoints more often | `--set train.save_every=200` |
+| Preview cadence | `--set train.sample_every=300` |
+| Force square 1024 (instead of auto) | `--set dataset.resolution=1024` |
+| Cap huge images in auto mode | `--set dataset.max_training_edge=1536` |
+| Faster text cache on RTX 50xx | `--set model.disable_mxfp4=false` |
+
+Outputs: `./output/lens-lora-dual-character/lora_final.safetensors`, `checkpoints/`, `samples/`, `cache/`, `loss.json`.
+
+This dataset uses **full-sentence captions** (character names + scene). Sample prompts in the YAML mirror those lines; you do not need a single `trigger_word` unless you add one to every caption yourself.
 
 ### Character LoRA — Willow (LoboForge mascot)
 
@@ -203,7 +274,7 @@ Text precompute on CPU is **not** because latents need CPU — latents already r
 
 ### Re-use disk caches on later runs
 
-Caches live under **`job.output_dir/cache/`**. If you start another run with the **same** `output_dir`, dataset, captions, and `resolution`, the trainer **skips** any step that already has a matching `.pt` file and goes straight to training.
+Caches live under **`job.output_dir/cache/`**. If you start another run with the **same** `output_dir`, dataset, captions, and **per-image training size** (path + caption + height×width), the trainer **skips** any step that already has a matching `.pt` file and goes straight to training.
 
 ```bash
 # First run: pays precompute + training
@@ -224,10 +295,10 @@ Keep the same `job.output_dir` when you want to avoid re-encoding. Copy or symli
 
 ### When caches are rebuilt
 
-Cache filenames are hashed from **image path**, **caption text**, and **`dataset.resolution`**. A file is recomputed only if its entry is missing. You get a new encode if you:
+Cache filenames are hashed from **image path**, **caption text**, and **snapped training height×width**. A file is recomputed only if its entry is missing. You get a new encode if you:
 
 - change a caption or swap an image file
-- change `dataset.resolution`
+- change `dataset.resolution` or switch auto ↔ square mode (or change `max_training_edge` enough to change snapped sizes)
 - point `job.output_dir` at a folder without caches
 - delete `cache/latents/` or `cache/text/` (or the whole `cache/` tree)
 
@@ -271,7 +342,9 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | | `disable_mxfp4` | `true`: dequantize TE to bf16 (CPU text precompute on 16GB). `false`: keep MXFP4 (~6GB, GPU text precompute on Blackwell) — use `--set model.disable_mxfp4=false` |
 | | `cpu_offload` | Diffusers CPU offload (`text_encoder→transformer→vae`) |
 | | `cache_text_embeddings` | Precompute GPT-OSS multi-layer features to disk |
-| **dataset** | `folder_path`, `caption_ext`, `resolution` | Data root, caption extension, square training size |
+| **dataset** | `folder_path`, `caption_ext` | Data root; one caption file per image (`image.jpg` + `image.txt`) |
+| | `resolution` | Square side length when **> 0**. **`0` = auto** — native aspect, snapped to 16px (use `batch_size: 1` if sizes differ) |
+| | `max_training_edge` | Auto mode only: max long edge in px before downscale (`0` = no cap) |
 | | `cache_latents` | Precompute VAE latents `[B, H×W, 128]` to disk |
 | | `max_sequence_length` | GPT-OSS chat prompt max tokens |
 | **lora** | `rank`, `alpha`, `dropout`, `target_modules` | PEFT LoRA on transformer Linear layers |
@@ -284,15 +357,38 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | **sample** | `prompts` | Named prompt list (`[trigger]` → `trigger_word`); string or `{name, prompt}` |
 | | `baseline_control` | Step-0 control grid on base model (same prompt list, `step_000000_control_*`) |
 | | `walk_seed` | Increment seed per prompt so samples are not identical |
-| | `trigger_word`, `width`, `height`, `steps`, `cfg`, `seed` | Preview generation settings |
+| | `trigger_word`, `width`, `height`, `steps`, `cfg`, `seed` | Preview generation; `[trigger]` in prompts → `trigger_word`. **`height`/`width` = 0** → dataset dominant size |
 
 ### VRAM presets
 
 | File | Target | Notes |
 |------|--------|-------|
-| `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Offload + caches; `disable_mxfp4: true` by default. On RTX 50xx add `--set model.disable_mxfp4=false` for faster text precompute |
-| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | Character LoRA preset (LoboForge mascot Willow) |
+| `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Generic subject/style; 2000 steps template |
+| `configs/train_lora_dual_character_24gb.yaml` | ~16–24GB | DualCharacterLoras — 8000 steps, auto resolution, caption-based sample prompts |
+| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | LoboForge mascot Willow (long run / custom paths) |
 | `configs/train_lora_lens_base_48gb.yaml` | 48GB+ | No offload, batch 2, rank 32 |
+
+### Minimal train command template
+
+```bash
+cd /path/to/LensTrainer-LoboForge
+source .venv/bin/activate
+export PYTHONPATH="/path/to/LensTrainer-LoboForge/vendor/Lens:${PYTHONPATH}"
+
+python train.py configs/train_lora_lens_base_24gb.yaml \
+  --set model.repo_id=./models/Lens-Base \
+  --set dataset.folder_path=/path/to/your/dataset \
+  --set dataset.resolution=0 \
+  --set job.output_dir=./output/my-lora \
+  --set train.steps=8000 \
+  --set train.save_every=250 \
+  --set train.sample_every=400 \
+  --set sample.trigger_word=your_token \
+  --set sample.height=0 \
+  --set sample.width=0
+```
+
+Put `your_token` in every caption and in `sample.prompts` as `[trigger]` if you use a single activation word. For descriptive captions only, leave `trigger_word` empty and write full prompts (see dual-character preset).
 
 Override any field at runtime:
 
