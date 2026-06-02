@@ -344,7 +344,8 @@ Training continues at **checkpoint step + 1** until `train.steps`. Samples and s
 - Use the **same** `lora.rank`, `lora.alpha`, and `lora.target_modules` as the original run (warnings are printed on mismatch).
 - Checkpoints are **ComfyUI-compatible** `safetensors` — the same files you load in ComfyUI are what training resumes from.
 - **Not saved in v1:** optimizer state, RNG state, exact dataloader order.
-- A checkpoint must exist (`save_every` must have fired at least once). If you stopped before the first save, restart without `resume_from`.
+- `resume_from: latest` / `auto` with **no** checkpoint on disk prints a warning and **starts from step 0** (no crash). Use an explicit path only when you know the file exists.
+- On **Ctrl+C**, training saves `lora_emergency.safetensors` (and `loss.json` is flushed every 25 steps). `latest` also picks `lora_latest.safetensors` (updated on each scheduled save).
 
 ### What gets skipped on resume
 

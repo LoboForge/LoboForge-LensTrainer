@@ -9,6 +9,8 @@ import torch
 from peft import LoraConfig, get_peft_model
 from safetensors.torch import save_file
 
+from lens_trainer.console import warn as log_warn
+
 # Lens uses nn.ModuleList([Linear, Identity]) for attn.to_out and GateMLP (w1/w2/w3)
 # for img_mlp/txt_mlp. PEFT only supports leaf Linear modules.
 _LENS_TARGET_ALIASES: dict[str, list[str]] = {
@@ -104,6 +106,44 @@ def read_lora_checkpoint_metadata(checkpoint_path: Path) -> dict[str, str]:
         return dict(handle.metadata() or {})
 
 
+def _checkpoint_step(path: Path) -> int:
+    if path.name in {"lora_final.safetensors", "lora_latest.safetensors", "lora_emergency.safetensors"}:
+        meta = read_lora_checkpoint_metadata(path)
+        return int(meta.get("step", 0))
+    try:
+        return int(path.stem.rsplit("_", 1)[-1])
+    except ValueError:
+        return 0
+
+
+def list_resume_checkpoint_candidates(
+    *,
+    output_dir: Path,
+    checkpoints_dir: Path,
+) -> list[Path]:
+    """All on-disk LoRA files that may be used for resume (highest step wins)."""
+    candidates = list(checkpoints_dir.glob("lora_step_*.safetensors"))
+    for name in ("lora_final.safetensors", "lora_latest.safetensors", "lora_emergency.safetensors"):
+        path = output_dir / name
+        if path.is_file():
+            candidates.append(path)
+    return candidates
+
+
+def find_resume_checkpoint(
+    *,
+    output_dir: Path,
+    checkpoints_dir: Path,
+) -> Path | None:
+    candidates = list_resume_checkpoint_candidates(
+        output_dir=output_dir,
+        checkpoints_dir=checkpoints_dir,
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=_checkpoint_step)
+
+
 def resolve_resume_checkpoint(
     resume_from: str,
     *,
@@ -115,26 +155,16 @@ def resolve_resume_checkpoint(
         raise ValueError("resume_from is empty")
 
     if token.lower() in {"latest", "auto"}:
-        candidates = list(checkpoints_dir.glob("lora_step_*.safetensors"))
-        final_path = output_dir / "lora_final.safetensors"
-        if final_path.is_file():
-            candidates.append(final_path)
-
-        if not candidates:
+        ckpt = find_resume_checkpoint(
+            output_dir=output_dir,
+            checkpoints_dir=checkpoints_dir,
+        )
+        if ckpt is None:
             raise FileNotFoundError(
-                f"No checkpoints found under {checkpoints_dir} or {final_path}"
+                f"No checkpoints found under {checkpoints_dir} or "
+                f"{output_dir / 'lora_latest.safetensors'}"
             )
-
-        def _step(path: Path) -> int:
-            if path.name == "lora_final.safetensors":
-                meta = read_lora_checkpoint_metadata(path)
-                return int(meta.get("step", 0))
-            try:
-                return int(path.stem.rsplit("_", 1)[-1])
-            except ValueError:
-                return 0
-
-        return max(candidates, key=_step)
+        return ckpt
 
     path = Path(token)
     if not path.is_file():
@@ -175,8 +205,8 @@ def load_lora_weights(model, checkpoint_path: Path) -> dict[str, object]:
     incompatible = model.load_state_dict(mapped, strict=False)
     missing_lora = [k for k in incompatible.missing_keys if "lora_" in k]
     if missing_lora:
-        print(
-            f"Warning: {len(missing_lora)} LoRA key(s) in model not present in checkpoint "
+        log_warn(
+            f"{len(missing_lora)} LoRA key(s) in model not present in checkpoint "
             f"(loaded {len(mapped)} tensors from {checkpoint_path.name})"
         )
 

@@ -37,7 +37,7 @@ lora:
     - proj_out
 
 train:
-  steps: 2000
+  steps: 10000
   batch_size: 1
   gradient_accumulation_steps: 1
   learning_rate: 1.0e-4
@@ -46,8 +46,8 @@ train:
   gradient_checkpointing: true
   guidance_scale: 5.0
   timestep_type: shift
-  save_every: 250
-  sample_every: 100
+  save_every: 100
+  sample_every: 300
   sample_every_early: 0
   sample_early_until: 500
   seed: 42

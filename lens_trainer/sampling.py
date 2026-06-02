@@ -10,6 +10,7 @@ from typing import Any, List, Sequence, Tuple
 import torch
 
 from lens_trainer.config import SampleConfig, TrainConfig
+from lens_trainer.console import sample as log_sample
 
 
 @dataclass(frozen=True)
@@ -150,7 +151,9 @@ def run_sample_set(
     if not resolved:
         return
 
-    print(f"Sampling {len(resolved)} prompt(s) at step {step} ({tag}) -> {output_dir}")
+    log_sample(
+        f"Sampling {len(resolved)} prompt(s) at step {step} ({tag}) -> {output_dir}"
+    )
     transformer = pipe.transformer
 
     for offset, item in enumerate(resolved):
@@ -202,7 +205,7 @@ def run_sample_set(
         filename = f"step_{step:06d}_{tag}_{item.name}.png"
         out_path = output_dir / filename
         result.images[0].save(out_path)
-        print(f"  saved {out_path.name}")
+        log_sample(f"  saved {out_path.name}")
 
 
 @torch.no_grad()

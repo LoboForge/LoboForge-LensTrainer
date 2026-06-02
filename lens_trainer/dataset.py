@@ -13,6 +13,8 @@ from PIL import Image, UnidentifiedImageError
 from torch.utils.data import Dataset
 
 from lens_trainer.config import DatasetConfig
+from lens_trainer.console import dataset as log_dataset
+from lens_trainer.console import warn as log_warn
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -60,13 +62,13 @@ def discover_items(folder: Path, caption_ext: str) -> tuple[List[DatasetItem], L
         caption = caption_path.read_text(encoding="utf-8").strip()
         if not caption:
             skipped.append(SkippedImage(image_path, "empty caption"))
-            print(f"Skipping {image_path.name}: empty caption")
+            log_warn(f"Skipping {image_path.name}: empty caption")
             continue
         try:
             validate_image_file(image_path)
         except (OSError, UnidentifiedImageError, FileNotFoundError, ValueError) as exc:
             skipped.append(SkippedImage(image_path, str(exc)))
-            print(f"Skipping {image_path.name}: {exc}")
+            log_warn(f"Skipping {image_path.name}: {exc}")
             continue
         items.append(DatasetItem(image_path=image_path, caption=caption))
 
@@ -79,7 +81,7 @@ def discover_items(folder: Path, caption_ext: str) -> tuple[List[DatasetItem], L
             detail += f" Skipped {len(skipped)} invalid pair(s)."
         raise ValueError(detail)
     if skipped:
-        print(f"Dataset ready: {len(items)} valid pair(s), {len(skipped)} skipped.")
+        log_dataset(f"Dataset ready: {len(items)} valid pair(s), {len(skipped)} skipped.")
     return items, skipped
 
 
