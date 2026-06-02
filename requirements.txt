@@ -18,5 +18,6 @@ bitsandbytes>=0.45.0
 # kernels>=0.15 breaks transformers 5.9 imports; pin until upstream catches up.
 # kernels>=0.12.0,<0.15
 
-# Microsoft Lens inference package (required for LensPipeline).
-lens @ git+https://github.com/microsoft/Lens.git
+# Microsoft Lens: clone to vendor/Lens (see scripts/install_microsoft_lens.sh).
+# Upstream has no pyproject.toml — pip install from GitHub will fail.
+# After setup: export PYTHONPATH="${INSTALL_DIR}/vendor/Lens:${PYTHONPATH}"

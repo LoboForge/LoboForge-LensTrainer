@@ -78,6 +78,12 @@ check_python() {
   log "Python: $("${PYTHON}" --version)"
 }
 
+install_lens_package() {
+  # shellcheck disable=SC1091
+  source "${INSTALL_DIR}/scripts/install_microsoft_lens.sh"
+  install_microsoft_lens "${INSTALL_DIR}"
+}
+
 clone_or_update_repo() {
   if [[ -f "${INSTALL_DIR}/train.py" && -f "${INSTALL_DIR}/requirements.txt" ]]; then
     log "Repo already at ${INSTALL_DIR}"
@@ -104,8 +110,9 @@ install_venv() {
   source .venv/bin/activate
   export PIP_DISABLE_PIP_VERSION_CHECK=1
   pip install -U pip wheel setuptools
-  log "Installing Python dependencies (Lens from GitHub — may take several minutes)"
+  log "Installing trainer dependencies (requirements.txt)"
   pip install -r requirements.txt
+  install_lens_package
 }
 
 write_env_helper() {
@@ -118,6 +125,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/.venv/bin/activate"
 export USE_HUB_KERNELS=NO
+export PYTHONPATH="${SCRIPT_DIR}/vendor/Lens:${PYTHONPATH:-}"
 # Prefer persistent HF cache on RunPod network volume
 export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/hub}"
@@ -153,6 +161,7 @@ smoke_test() {
   # shellcheck disable=SC1091
   source .venv/bin/activate
   export USE_HUB_KERNELS=NO
+  export PYTHONPATH="${INSTALL_DIR}/vendor/Lens:${PYTHONPATH:-}"
   python - <<'PY'
 import sys
 print("python", sys.version.split()[0])
@@ -167,7 +176,7 @@ if not torch.cuda.is_available():
 print("cuda", torch.cuda.get_device_name(0))
 print("vram_gb", round(torch.cuda.get_device_properties(0).total_memory / 1e9, 1))
 
-import lens  # noqa: F401 — installs microsoft/Lens from requirements.txt
+import lens  # noqa: F401 — vendor/Lens on PYTHONPATH
 print("lens ok", lens.__file__)
 
 print("smoke test passed")

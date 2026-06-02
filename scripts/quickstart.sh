@@ -47,6 +47,10 @@ echo "==> Installing dependencies (this may take a few minutes)"
 pip install -U pip wheel
 pip install -r requirements.txt
 
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/install_microsoft_lens.sh"
+install_microsoft_lens "${ROOT}"
+
 cat <<EOF
 
 ================================================================================
@@ -61,6 +65,7 @@ Put images + sidecar .txt captions in a folder (see README "Dataset layout").
 Train (16GB+ GPU, default preset):
   cd ${ROOT}
   source .venv/bin/activate
+  export PYTHONPATH="${ROOT}/vendor/Lens:\${PYTHONPATH}"
   python train.py configs/train_lora_lens_base_24gb.yaml \\
     --set dataset.folder_path=/path/to/your/dataset \\
     --set sample.trigger_word=your_trigger \\

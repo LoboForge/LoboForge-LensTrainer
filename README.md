@@ -126,14 +126,16 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -U pip
 pip install -r requirements.txt
+bash scripts/install_microsoft_lens.sh   # or: source it and run install_microsoft_lens "$PWD"
+export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 ```
 
-The trainer depends on the official [microsoft/Lens](https://github.com/microsoft/Lens) package (installed from Git via `requirements.txt`). If you prefer a local clone instead:
+Clone/update Lens automatically:
 
 ```bash
-git clone https://github.com/microsoft/Lens.git ../Lens
-export PYTHONPATH="/path/to/Lens:${PYTHONPATH}"
-pip install -r requirements.txt --no-deps  # install other deps only
+source scripts/install_microsoft_lens.sh
+install_microsoft_lens "$(pwd)"
+export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 ```
 
 Authenticate with Hugging Face (required for gated checkpoints):
