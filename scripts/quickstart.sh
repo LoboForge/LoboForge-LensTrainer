@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # LensTrainer-LoboForge — clone, venv, deps. Run from repo root or via curl | bash.
+#
+# RunPod GPU pod (fresh PyTorch template): use scripts/setup_runpod.sh instead —
+# it installs apt deps, checks nvidia-smi, smoke-tests imports, and writes runpod_env.sh.
 set -euo pipefail
 
 REPO_URL="${LOBFORGE_TRAINER_REPO:-https://github.com/LoboForge/LoboForge-LensTrainer.git}"

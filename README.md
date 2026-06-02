@@ -70,6 +70,51 @@ Peak VRAM by phase (16GB preset):
 | Text precompute (default) | nothing (CPU) | ~0GB |
 | Mid-run samples | DiT + VAE swap | ~14–16GB |
 
+## RunPod (fresh GPU pod)
+
+Use the official **RunPod PyTorch** template (CUDA 12.x, Ubuntu). Pick a **24GB+** GPU (e.g. RTX 4090). Mount a **network volume** at `/workspace` so repo, HF cache, and `output/` survive restarts.
+
+In **Jupyter terminal**, **Web terminal**, or **SSH (Direct TCP)** — one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/setup_runpod.sh | bash
+```
+
+Or from a clone:
+
+```bash
+cd /workspace
+git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
+cd LoboForge-LensTrainer
+bash scripts/setup_runpod.sh
+```
+
+The script installs apt packages (`git`, `python3-venv`, build tools), clones/updates the repo under `/workspace/LoboForge-LensTrainer`, creates `.venv`, installs `requirements.txt`, checks `nvidia-smi`, smoke-tests `torch` + `lens`, and writes `scripts/runpod_env.sh`.
+
+Optional:
+
+```bash
+export HF_TOKEN=hf_your_token_here   # auto-login during setup
+export LOBFORGE_TRAINER_DIR=/workspace/LoboForge-LensTrainer
+bash scripts/setup_runpod.sh
+```
+
+Upload a dataset with **Direct TCP SSH** (supports SCP), e.g.:
+
+```bash
+scp -P 12388 -i ~/.ssh/id_ed25519 -r /path/to/DualCharacterLoras root@YOUR_POD_IP:/workspace/
+```
+
+Then train:
+
+```bash
+source /workspace/LoboForge-LensTrainer/scripts/runpod_env.sh
+python train.py configs/train_lora_dual_character_24gb.yaml \
+  --set model.repo_id=microsoft/Lens-Base \
+  --set dataset.folder_path=/workspace/DualCharacterLoras \
+  --set job.output_dir=/workspace/output/lens-lora-dual-character
+```
+
 ## Setup
 
 Manual install (if you skip `quickstart.sh`):
