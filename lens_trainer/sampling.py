@@ -74,7 +74,7 @@ def prepare_for_inference(
 
     On 16GB GPUs (``low_vram=True``) the text encoder stays on CPU and only the
     DiT + VAE are offloaded to CUDA one at a time. Callers must pass pre-encoded
-    ``prompt_embeds`` into ``pipe()`` — see ``_encode_prompt_on_cpu``.
+    ``prompt_embeds`` into ``pipe()`` — see ``_encode_prompt_for_low_vram``.
     """
     pipe.transformer = transformer
     transformer.eval()
@@ -107,19 +107,47 @@ def prepare_for_inference(
 
 
 @torch.no_grad()
-def _encode_prompt_on_cpu(
+def _encode_prompt_for_low_vram(
     pipe,
     prompt: str,
     max_sequence_length: int,
+    device: torch.device,
+    *,
+    disable_mxfp4: bool,
 ) -> Tuple[List[torch.Tensor], torch.Tensor, List[torch.Tensor], torch.Tensor]:
-    """Encode one prompt on CPU (no TE GPU load). Returns pos/neg embeds + masks."""
+    """Encode one prompt for low-VRAM sampling (DiT/VAE off GPU during TE work).
+
+    MXFP4 Triton kernels require CUDA — cannot use ``device=cpu`` when MXFP4 is active.
+    """
     if hasattr(pipe, "remove_all_hooks"):
         pipe.remove_all_hooks()
-    pipe.text_encoder.to("cpu")
 
-    prompt_embeds, prompt_mask = pipe._get_text_embeddings(
-        [prompt], max_sequence_length, torch.device("cpu")
-    )
+    te_hook = None
+    if disable_mxfp4 or device.type != "cuda":
+        encode_device = torch.device("cpu")
+        pipe.text_encoder.to("cpu")
+    else:
+        from lens_trainer.trainer import (
+            _attach_text_encoder_offload,
+            _detach_text_encoder_offload,
+            _park_pipeline_for_text_cache,
+        )
+
+        _park_pipeline_for_text_cache(pipe)
+        encode_device = device
+        te_hook = _attach_text_encoder_offload(pipe.text_encoder, device)
+
+    try:
+        prompt_embeds, prompt_mask = pipe._get_text_embeddings(
+            [prompt], max_sequence_length, encode_device
+        )
+    finally:
+        if te_hook is not None:
+            from lens_trainer.trainer import _detach_text_encoder_offload
+
+            _detach_text_encoder_offload(pipe.text_encoder, te_hook)
+        pipe.text_encoder.to("cpu")
+
     negative_prompt_embeds = [feat.new_zeros(feat.shape) for feat in prompt_embeds]
     negative_prompt_mask = torch.zeros_like(prompt_mask, dtype=torch.bool)
     return prompt_embeds, prompt_mask, negative_prompt_embeds, negative_prompt_mask
@@ -144,6 +172,7 @@ def run_sample_set(
     *,
     device: torch.device,
     low_vram: bool = False,
+    disable_mxfp4: bool = True,
 ) -> None:
     """Generate one PNG per prompt and save with stable names."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +193,13 @@ def run_sample_set(
                 prompt_mask,
                 negative_prompt_embeds,
                 negative_prompt_mask,
-            ) = _encode_prompt_on_cpu(pipe, item.text, cfg.max_sequence_length)
+            ) = _encode_prompt_for_low_vram(
+                pipe,
+                item.text,
+                cfg.max_sequence_length,
+                device,
+                disable_mxfp4=disable_mxfp4,
+            )
             prepare_for_inference(pipe, transformer, device, low_vram=True)
             exec_device = _inference_device(pipe, device)
             prompt_embeds = [tensor.to(exec_device) for tensor in prompt_embeds]
@@ -219,6 +254,7 @@ def run_sampling(
     low_vram: bool = False,
     tag: str = "lora",
     prompts: Sequence[Any] | None = None,
+    disable_mxfp4: bool = True,
 ) -> None:
     run_sample_set(
         pipe,
@@ -229,6 +265,7 @@ def run_sampling(
         tag=tag,
         device=device,
         low_vram=low_vram,
+        disable_mxfp4=disable_mxfp4,
     )
 
 
@@ -240,6 +277,7 @@ def run_baseline_control_samples(
     output_dir: Path,
     device: torch.device,
     cpu_offload: bool,
+    disable_mxfp4: bool = True,
 ) -> None:
     """Sample the full prompt list with the untouched base DiT (no LoRA) at step 0."""
     if not cfg.baseline_control or not cfg.prompts:
@@ -257,6 +295,7 @@ def run_baseline_control_samples(
             tag="control",
             device=device,
             low_vram=cpu_offload,
+            disable_mxfp4=disable_mxfp4,
         )
     finally:
         release_inference(pipe)

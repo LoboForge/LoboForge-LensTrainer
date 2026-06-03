@@ -552,6 +552,7 @@ class LensTrainer:
                 self.samples_dir,
                 device,
                 cfg.model.cpu_offload,
+                disable_mxfp4=cfg.model.disable_mxfp4,
             )
 
         lora_model = attach_lora(
@@ -723,6 +724,7 @@ class LensTrainer:
                                 tag="lora",
                                 device=device,
                                 low_vram=cfg.model.cpu_offload,
+                                disable_mxfp4=cfg.model.disable_mxfp4,
                             )
                         finally:
                             prepare_for_training(pipe, lora_model, device)
