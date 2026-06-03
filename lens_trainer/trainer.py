@@ -16,6 +16,7 @@ from lens_trainer.branding import print_startup_banner
 from lens_trainer.console import (
     checkpoint as log_checkpoint,
     error as log_error,
+    info as log_info,
     resume as log_resume,
     tqdm_bar,
     warn as log_warn,
@@ -227,10 +228,15 @@ def precompute_caches(
         te_hook = None
         if encode_on_cpu:
             encode_device = torch.device("cpu")
+            log_info(
+                "Text cache on CPU (disable_mxfp4=true). First caption can take 10–30+ min "
+                "with <64GB RAM. On 24GB GPUs set DISABLE_MXFP4=false in training.env."
+            )
         else:
             encode_device = device
             if cpu_offload:
                 te_hook = _attach_text_encoder_offload(pipe.text_encoder, device)
+            log_info(f"Text cache on GPU ({encode_device}) with MXFP4.")
 
         try:
             for index in tqdm_bar(
