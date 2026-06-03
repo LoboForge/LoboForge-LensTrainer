@@ -115,24 +115,14 @@ install_venv() {
   install_lens_package
 }
 
-write_env_helper() {
+ensure_env_helper() {
   local env_file="${INSTALL_DIR}/scripts/runpod_env.sh"
-  log "Writing ${env_file}"
-  mkdir -p "${INSTALL_DIR}/scripts"
-  cat >"${env_file}" <<'ENVEOF'
-# Source before training:  source /workspace/LoboForge-LensTrainer/scripts/runpod_env.sh
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/.venv/bin/activate"
-export USE_HUB_KERNELS=NO
-export PYTHONPATH="${SCRIPT_DIR}/vendor/Lens:${PYTHONPATH:-}"
-# Prefer persistent HF cache on RunPod network volume
-export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-${HF_HOME}/hub}"
-mkdir -p "${HF_HOME}"
-cd "${SCRIPT_DIR}"
-ENVEOF
-  chmod +x "${env_file}"
+  if [[ -f "${env_file}" ]]; then
+    chmod +x "${env_file}"
+    log "Using ${env_file} (committed with repo)"
+    return 0
+  fi
+  die "Missing ${env_file} — re-clone the repo or pull latest main"
 }
 
 hf_login_if_token() {
@@ -218,7 +208,7 @@ main() {
   check_python
   clone_or_update_repo
   install_venv
-  write_env_helper
+  ensure_env_helper
   hf_login_if_token
   smoke_test
   print_next_steps
