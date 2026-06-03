@@ -22,11 +22,14 @@ curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/mai
 
 ### 2 — Configure + train
 
+**Local:**
 ```bash
-cd /workspace/LoboForge-LensTrainer
-nano training.env    # DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, TRAIN_PRESET, ...
+cd /path/to/LensTrainer-LoboForge
+cp training.env.example training.env   # edit DATASET_PATH if needed
 bash scripts/train.sh
 ```
+
+**RunPod:** `cp training.env.runpod.example training.env` then `bash scripts/train.sh`
 
 | `training.env` variable | You set |
 |-------------------------|---------|

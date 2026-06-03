@@ -140,7 +140,13 @@ write_training_env() {
   local env_file="${INSTALL_DIR}/training.env"
   local example="${INSTALL_DIR}/training.env.example"
   if [[ ! -f "${env_file}" ]]; then
-    [[ -f "${example}" ]] && cp "${example}" "${env_file}" || die "missing training.env.example"
+    if [[ -d /workspace ]] && [[ -f "${INSTALL_DIR}/training.env.runpod.example" ]]; then
+      cp "${INSTALL_DIR}/training.env.runpod.example" "${env_file}"
+    elif [[ -f "${example}" ]]; then
+      cp "${example}" "${env_file}"
+    else
+      die "missing training.env.example"
+    fi
     log "Created training.env"
   fi
   # Point default model at local assembled folder
@@ -149,11 +155,6 @@ write_training_env() {
   fi
   sed -i "s|^MODEL_REPO=.*|MODEL_REPO=${MODEL_PATH}|" "${env_file}" 2>/dev/null \
     || sed -i '' "s|^MODEL_REPO=.*|MODEL_REPO=${MODEL_PATH}|" "${env_file}" 2>/dev/null || true
-  if [[ -d /workspace ]]; then
-    sed -i "s|^TRAIN_PRESET=.*|TRAIN_PRESET=configs/train_runpod_gpu.yaml|" "${env_file}" 2>/dev/null \
-      || sed -i '' "s|^TRAIN_PRESET=.*|TRAIN_PRESET=configs/train_runpod_gpu.yaml|" "${env_file}" 2>/dev/null || true
-    grep -q '^BASELINE_CONTROL=' "${env_file}" || echo "BASELINE_CONTROL=false" >>"${env_file}"
-  fi
 }
 
 smoke_test() {

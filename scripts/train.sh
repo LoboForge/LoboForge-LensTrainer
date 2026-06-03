@@ -14,7 +14,9 @@ cd "${ROOT}"
 source "${ROOT}/scripts/_trainer_env.sh"
 activate_trainer_env "${ROOT}" || exit 1
 
-[[ -f "${ROOT}/training.env" ]] || die "Missing training.env — run bootstrap.sh first"
+if [[ ! -f "${ROOT}/training.env" ]]; then
+  die "Missing training.env — local: cp training.env.example training.env | RunPod: cp training.env.runpod.example training.env"
+fi
 # shellcheck disable=SC1091
 source "${ROOT}/training.env"
 
@@ -51,7 +53,7 @@ if [[ $# -gt 0 ]]; then
 fi
 
 [[ -n "${DATASET_PATH}" ]] || die "Set DATASET_PATH in training.env"
-[[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH}"
+[[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH} (fix training.env — local paths, not /workspace)"
 [[ -f "${ROOT}/${TRAIN_PRESET}" ]] || die "TRAIN_PRESET not found: ${TRAIN_PRESET}"
 if [[ "${MODEL_REPO}" == microsoft/* ]]; then
   :
