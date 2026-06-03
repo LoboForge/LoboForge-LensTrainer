@@ -6,35 +6,46 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 
 ## Quickstart (TL;DR)
 
-**One bootstrap** — clone, system deps, venv, Microsoft Lens, Hugging Face, smoke test. You only configure dataset + training after.
+**Two scripts only:**
+
+| Script | When |
+|--------|------|
+| `scripts/bootstrap.sh` | Once per machine — installs everything |
+| `scripts/train.sh` | Every run — after you edit `training.env` |
+
+**1. Bootstrap**
 
 ```bash
-export HF_TOKEN=hf_your_token_here   # recommended (gated Lens-Base)
+export HF_TOKEN=hf_your_token_here
 curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
 ```
 
-**Train** (from install dir — `/workspace/LoboForge-LensTrainer` on RunPod):
+**2. Configure** — edit `training.env` (created from `training.env.example`):
 
 ```bash
-source scripts/runpod_env.sh
-./train.sh configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/path/to/your/dataset \
-  --set sample.trigger_word=your_trigger \
-  --set job.output_dir=./output/my-lora
+cd /workspace/LoboForge-LensTrainer   # or ~/LoboForge-LensTrainer
+nano training.env
 ```
 
-**Optional — bootstrap and start training in one go:**
+| Variable | Meaning |
+|----------|---------|
+| `DATASET_PATH` | Folder of images + matching `.txt` captions |
+| `LORA_NAME` | Short name for this run (`job.name`) |
+| `OUTPUT_DIR` | Checkpoints + `lora_final.safetensors` |
+| `STEPS` | Training steps (e.g. `8000`) |
+| `TRIGGER_WORD` | Token for `[trigger]` in sample prompts (empty if captions are full sentences) |
+| `TRAIN_PRESET` | YAML under `configs/` (sample prompts + LoRA targets) |
+| `MODEL_REPO` | `microsoft/Lens-Base` or `./models/Lens-Base` |
+
+**3. Train**
 
 ```bash
-export HF_TOKEN=hf_...
-export DATASET_PATH=/workspace/DualCharacterLoras
-export START_TRAIN=1
-export TRAIN_CONFIG=configs/train_lora_dual_character_24gb.yaml
-export JOB_OUTPUT_DIR=/workspace/output/lens-lora-dual-character
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
+bash scripts/train.sh
 ```
 
-Done when you have `job.output_dir/lora_final.safetensors`. See [Dataset layout](#dataset-layout) and [VRAM](#vram--system-requirements) below before your first run.
+Resume: set `RESUME_FROM=latest` and `BASELINE_CONTROL=false` in `training.env`.
+
+Done when you have `OUTPUT_DIR/lora_final.safetensors`. See [Dataset layout](#dataset-layout) and [VRAM](#vram--system-requirements) below.
 
 ## Requirements
 
@@ -79,16 +90,10 @@ export HF_TOKEN=hf_your_token_here
 curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
 ```
 
-Upload a dataset with **Direct TCP SSH** (supports SCP), then train:
+Upload a dataset with **Direct TCP SSH** (supports SCP), edit `training.env`, then `bash scripts/train.sh`:
 
 ```bash
 scp -P <PORT> -i ~/.ssh/id_ed25519 -r /path/to/DualCharacterLoras root@<POD_IP>:/workspace/
-
-cd /workspace/LoboForge-LensTrainer
-source scripts/runpod_env.sh
-./train.sh configs/train_lora_dual_character_24gb.yaml \
-  --set dataset.folder_path=/workspace/DualCharacterLoras \
-  --set job.output_dir=/workspace/output/lens-lora-dual-character
 ```
 
 ## Setup

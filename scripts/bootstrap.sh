@@ -11,12 +11,7 @@
 #   HF_TOKEN               Hugging Face token (hf auth + hub downloads)
 #   SKIP_APT=1             skip apt packages
 #   SKIP_SMOKE_TEST=1      skip GPU/import smoke test
-#   START_TRAIN=1          run training when DATASET_PATH is set
-#   DATASET_PATH           image folder with sidecar .txt captions
-#   TRAIN_CONFIG           yaml preset (default: configs/train_lora_lens_base_24gb.yaml)
-#   JOB_OUTPUT_DIR         output dir (default: ./output/lens-lora-run)
-#   MODEL_REPO             HF id or path (default: microsoft/Lens-Base)
-#   SAMPLE_TRIGGER         sample.trigger_word override
+# After bootstrap, edit training.env and run:  bash scripts/train.sh
 set -euo pipefail
 
 REPO_URL="${LOBFORGE_TRAINER_REPO:-https://github.com/LoboForge/LoboForge-LensTrainer.git}"
@@ -24,11 +19,6 @@ PYTHON="${PYTHON:-python3}"
 MIN_PYTHON=3.11
 SKIP_APT="${SKIP_APT:-0}"
 SKIP_SMOKE_TEST="${SKIP_SMOKE_TEST:-0}"
-START_TRAIN="${START_TRAIN:-0}"
-TRAIN_CONFIG="${TRAIN_CONFIG:-configs/train_lora_lens_base_24gb.yaml}"
-MODEL_REPO="${MODEL_REPO:-microsoft/Lens-Base}"
-JOB_OUTPUT_DIR="${JOB_OUTPUT_DIR:-./output/lens-lora-run}"
-
 default_install_dir() {
   if [[ -n "${LOBFORGE_TRAINER_DIR:-}" ]]; then
     printf '%s' "${LOBFORGE_TRAINER_DIR}"
@@ -176,52 +166,31 @@ print("ok: yaml, torch", torch.__version__, "cuda:", torch.cuda.is_available(), 
 PY
 }
 
-maybe_start_training() {
-  if [[ "${START_TRAIN}" != "1" && -z "${DATASET_PATH:-}" ]]; then
-    return 0
+ensure_training_env() {
+  local example="${INSTALL_DIR}/training.env.example"
+  local env_file="${INSTALL_DIR}/training.env"
+  if [[ ! -f "${env_file}" && -f "${example}" ]]; then
+    cp "${example}" "${env_file}"
+    log "Created ${env_file} — edit DATASET_PATH, LORA_NAME, STEPS, then train"
+  elif [[ -f "${env_file}" ]]; then
+    log "Using existing ${env_file}"
   fi
-  if [[ -z "${DATASET_PATH:-}" ]]; then
-    die "START_TRAIN=1 requires DATASET_PATH"
-  fi
-  if [[ ! -d "${DATASET_PATH}" ]]; then
-    die "DATASET_PATH not found: ${DATASET_PATH}"
-  fi
-  log "Starting training (${TRAIN_CONFIG})"
-  # shellcheck disable=SC1091
-  source "${INSTALL_DIR}/scripts/runpod_env.sh"
-  local -a args=(
-    "${INSTALL_DIR}/train.sh"
-    "${TRAIN_CONFIG}"
-    --set "model.repo_id=${MODEL_REPO}"
-    --set "dataset.folder_path=${DATASET_PATH}"
-    --set "job.output_dir=${JOB_OUTPUT_DIR}"
-  )
-  if [[ -n "${SAMPLE_TRIGGER:-}" ]]; then
-    args+=(--set "sample.trigger_word=${SAMPLE_TRIGGER}")
-  fi
-  exec "${args[@]}"
 }
 
 print_done() {
   cat <<EOF
 
 ================================================================================
-Bootstrap complete — LensTrainer-LoboForge
+Bootstrap complete — two scripts total:
+
+  1) bash scripts/bootstrap.sh     (once — installs everything)
+  2) bash scripts/train.sh       (after editing training.env)
 
   cd ${INSTALL_DIR}
-  source scripts/runpod_env.sh
+  nano training.env    # DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, TRAIN_PRESET, ...
+  bash scripts/train.sh
 
-Train (set your dataset path):
-
-  ./train.sh configs/train_lora_dual_character_24gb.yaml \\
-    --set dataset.folder_path=/workspace/YOUR_DATASET \\
-    --set job.output_dir=/workspace/output/my-lora \\
-    --set model.repo_id=${MODEL_REPO}
-
-Re-bootstrap anytime:  bash scripts/bootstrap.sh
-
-Auto-start train on next bootstrap:
-  DATASET_PATH=/workspace/data START_TRAIN=1 HF_TOKEN=hf_... bash scripts/bootstrap.sh
+Re-bootstrap:  bash scripts/bootstrap.sh
 ================================================================================
 EOF
 }
@@ -237,8 +206,8 @@ main() {
   install_venv
   hf_login_if_token
   smoke_test
+  ensure_training_env
   print_done
-  maybe_start_training
 }
 
 main "$@"
