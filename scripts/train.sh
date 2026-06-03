@@ -28,7 +28,7 @@ SAMPLE_EVERY="${SAMPLE_EVERY:-400}"
 TRIGGER_WORD="${TRIGGER_WORD:-mytrigger}"
 MODEL_REPO="${MODEL_REPO:-${ROOT}/models/Lens-Base}"
 [[ "${MODEL_REPO}" != /* ]] && MODEL_REPO="${ROOT}/${MODEL_REPO#./}"
-DISABLE_MXFP4="${DISABLE_MXFP4:-true}"
+DISABLE_MXFP4="${DISABLE_MXFP4:-false}"
 RESOLUTION="${RESOLUTION:-0}"
 BASELINE_CONTROL="${BASELINE_CONTROL:-true}"
 RESUME_FROM="${RESUME_FROM:-}"
@@ -42,7 +42,7 @@ EXTRA_ARGS=()
 [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
   sed -n '2,8p' "$0"
   echo "Edit training.env — see training.env.example"
-  echo "Extra overrides: bash scripts/train.sh --set model.disable_mxfp4=false"
+  echo "Extra overrides: bash scripts/train.sh --set model.disable_mxfp4=true   # 16GB / no MXFP4"
   exit 0
 }
 if [[ $# -gt 0 ]]; then
@@ -70,7 +70,7 @@ log "  output   ${OUTPUT_DIR}"
 log "  steps    ${STEPS}"
 log "  model    ${MODEL_REPO}"
 log "  preset   ${TRAIN_PRESET}"
-log "  mxfp4    disable=${DISABLE_MXFP4} (false = GPU text cache; override with --set model.disable_mxfp4=false)"
+log "  mxfp4    disable=${DISABLE_MXFP4} (false=GPU MXFP4 cache; 16GB-only: true=CPU cache)"
 
 ARGS=(
   "${ROOT}/train.py" "${PRESET}"

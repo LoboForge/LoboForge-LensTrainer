@@ -5,7 +5,7 @@ job:
 model:
   repo_id: microsoft/Lens-Base
   dtype: bfloat16
-  disable_mxfp4: true          # false on RTX 50xx: --set model.disable_mxfp4=false (faster text precompute)
+  disable_mxfp4: false         # true only on 16GB / no MXFP4: CPU text cache (~15min/image)
   cpu_offload: true
   cache_text_embeddings: true  # disk cache; skipped on re-run — see README "Caching"
 

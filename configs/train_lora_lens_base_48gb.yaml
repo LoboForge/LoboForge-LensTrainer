@@ -6,7 +6,7 @@ job:
 model:
   repo_id: microsoft/Lens-Base
   dtype: bfloat16
-  disable_mxfp4: true
+  disable_mxfp4: false
   cpu_offload: false
   cache_text_embeddings: true
 

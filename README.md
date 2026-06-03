@@ -59,7 +59,7 @@ Lens-Base’s DiT is ~**13.4GB** in bf16. This trainer keeps the text encoder an
 | **System RAM** | **32GB** | **64GB** (faster / safer text precompute) |
 | **Preset** | `configs/train_lora_lens_base_24gb.yaml` | same, or `48gb` if you have headroom |
 
-**16GB path (what we test on):** `cpu_offload: true`, disk caches, `gradient_checkpointing: true`, `batch_size: 1`, `disable_mxfp4: true` (text precompute on CPU once). Training holds the full DiT on GPU — there is no smaller mode today without architectural changes.
+**16GB path:** same preset defaults, but set `disable_mxfp4: true` (CPU text precompute once; slow). **24GB+ default:** `disable_mxfp4: false` (GPU MXFP4 text cache).
 
 **Below 16GB VRAM:** not supported for training with Lens-Base using this repo.
 
@@ -329,7 +329,7 @@ rm -rf ./output/lens-lora-ballet/cache
 
 ### Faster text precompute with MXFP4 (optional)
 
-The 24GB preset defaults to `disable_mxfp4: true`, which dequantizes the Hub text encoder to bf16 and runs **text precompute on CPU** (~8–15 min for ~80 images). On **Blackwell (RTX 50xx)** and other GPUs with MXFP4 support, keep the quantized ~6GB encoder and run text precompute on **GPU** (often much faster):
+Presets default to `disable_mxfp4: false` (MXFP4 text encoder on **GPU** for text precompute). On **16GB VRAM** only, set `disable_mxfp4: true` for CPU text precompute (~8–15 min per image). Example GPU path:
 
 ```bash
 pip install 'kernels>=0.12.0,<0.15' 'triton>=3.4.0'
@@ -358,7 +358,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | **job** | `name`, `output_dir` | Run name and output directory |
 | **model** | `repo_id` | Hugging Face id (`microsoft/Lens-Base`) **or** path to a local HF-layout folder (see below) |
 | | `dtype` | `bfloat16`, `float16`, or `float32` |
-| | `disable_mxfp4` | `true`: dequantize TE to bf16 (CPU text precompute on 16GB). `false`: keep MXFP4 (~6GB, GPU text precompute on Blackwell) — use `--set model.disable_mxfp4=false` |
+| | `disable_mxfp4` | **Default `false`:** MXFP4 TE on GPU for text cache. **`true`:** bf16 TE on CPU (16GB / no MXFP4 only) |
 | | `cpu_offload` | Diffusers CPU offload (`text_encoder→transformer→vae`) |
 | | `cache_text_embeddings` | Precompute GPT-OSS multi-layer features to disk |
 | **dataset** | `folder_path`, `caption_ext` | Data root; one caption file per image (`image.jpg` + `image.txt`) |
@@ -608,12 +608,10 @@ Or run training from a normal system terminal (outside Cursor). Plain `python -c
 
 ### CUDA OOM during `Precomputing text`
 
-The GPT-OSS text encoder is **~6GB in MXFP4**, but the 24GB preset sets `disable_mxfp4: true`, which **dequantizes it to bf16 (~40GB in system RAM)**. That does not fit on a 16GB GPU as a single model. Latent precompute only uses the VAE; text precompute must run the TE once per image to build disk caches (same idea as Ostris).
-
-With `disable_mxfp4: true`, text precompute runs on **CPU** by default (slow once, then training ignores the TE). On Blackwell (RTX 50xx) you can usually keep MXFP4 and speed up precompute:
+The GPT-OSS text encoder is **~6GB in MXFP4** (default: GPU text precompute). Setting `disable_mxfp4: true` **dequantizes to bf16 (~40GB RAM)** and forces **CPU** text precompute — use only on **16GB** GPUs without MXFP4:
 
 ```bash
---set model.disable_mxfp4=false
+--set model.disable_mxfp4=true
 ```
 
 Requires `pip install kernels>=0.12.0 triton>=3.4.0`. Training still reads cached embeddings — the TE is not used in the training loop.

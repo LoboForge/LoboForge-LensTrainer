@@ -230,7 +230,7 @@ def precompute_caches(
             encode_device = torch.device("cpu")
             log_info(
                 "Text cache on CPU (disable_mxfp4=true). First caption can take 10–30+ min "
-                "with <64GB RAM. On 24GB GPUs set DISABLE_MXFP4=false in training.env."
+                "with <64GB RAM. Set DISABLE_MXFP4=true in training.env only for 16GB / no MXFP4."
             )
         else:
             encode_device = device
