@@ -498,8 +498,12 @@ class LensTrainer:
 
         resume_info = load_lora_weights(lora_model, ckpt)
         global_step = int(resume_info["step"])
+        if global_step <= 0:
+            raise RuntimeError(
+                f"Checkpoint {ckpt} has no step metadata; cannot resume safely."
+            )
         log_resume(
-            f"Resumed from {ckpt.name} at step {global_step} "
+            f"Resumed from {ckpt} at step {global_step} "
             f"({resume_info['loaded_keys']} LoRA tensors)"
         )
         ckpt_rank = resume_info.get("rank")

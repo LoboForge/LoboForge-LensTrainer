@@ -135,13 +135,19 @@ def find_resume_checkpoint(
     output_dir: Path,
     checkpoints_dir: Path,
 ) -> Path | None:
-    candidates = list_resume_checkpoint_candidates(
-        output_dir=output_dir,
-        checkpoints_dir=checkpoints_dir,
-    )
-    if not candidates:
+    """Pick the best checkpoint; prefer numbered step files over a stale lora_latest."""
+    numbered = list(checkpoints_dir.glob("lora_step_*.safetensors"))
+    if numbered:
+        return max(numbered, key=_checkpoint_step)
+
+    sidecars = []
+    for name in ("lora_emergency.safetensors", "lora_final.safetensors", "lora_latest.safetensors"):
+        path = output_dir / name
+        if path.is_file():
+            sidecars.append(path)
+    if not sidecars:
         return None
-    return max(candidates, key=_checkpoint_step)
+    return max(sidecars, key=_checkpoint_step)
 
 
 def resolve_resume_checkpoint(
@@ -210,7 +216,8 @@ def load_lora_weights(model, checkpoint_path: Path) -> dict[str, object]:
             f"(loaded {len(mapped)} tensors from {checkpoint_path.name})"
         )
 
-    step = int(metadata.get("step", 0))
+    step = int(metadata.get("step", 0) or 0)
+    step = max(step, _checkpoint_step(checkpoint_path))
     return {
         "step": step,
         "rank": metadata.get("rank"),

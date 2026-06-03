@@ -25,6 +25,7 @@ from lens_trainer.cuda_env import configure_cuda_libraries
 configure_cuda_libraries()
 
 from lens_trainer.config import load_config
+from lens_trainer.training_env import training_env_to_overrides
 from lens_trainer.trainer import LensTrainer
 
 
@@ -61,12 +62,15 @@ def _parse_override(entry: str) -> tuple[str, object]:
 
 def main() -> None:
     args = parse_args()
-    overrides = {}
+    root = Path(__file__).resolve().parent
+    overrides = training_env_to_overrides(root)
     for entry in args.set:
         patch = _parse_override(entry)
         overrides = _deep_merge(overrides, patch)
 
     cfg_path = Path(args.config)
+    if not cfg_path.is_absolute():
+        cfg_path = (root / cfg_path).resolve()
     if not cfg_path.exists():
         raise SystemExit(f"Config not found: {cfg_path}")
 

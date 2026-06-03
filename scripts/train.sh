@@ -76,6 +76,7 @@ log "  steps    ${STEPS}"
 log "  model    ${MODEL_REPO}"
 log "  preset   ${TRAIN_PRESET}"
 log "  mxfp4    disable=${DISABLE_MXFP4} (false=GPU MXFP4 cache; 16GB-only: true=CPU cache)"
+[[ -n "${RESUME_FROM:-}" ]] && log "  resume   ${RESUME_FROM}"
 
 ARGS=(
   "${ROOT}/train.py" "${PRESET}"
