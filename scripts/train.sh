@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# =============================================================================
-# LensTrainer-LoboForge — shared trainer (sourced via training.env).
-#
-#   Local:   bash scripts/train_local.sh
-#   RunPod:  bash scripts/train_runpod.sh
-# =============================================================================
+# Build an explicit "python train.py ..." command from training.env (all flags visible).
+# Prefer passing flags directly to train.py; use --env-file only if you want a file.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,11 +10,18 @@ cd "${ROOT}"
 source "${ROOT}/scripts/_trainer_env.sh"
 activate_trainer_env "${ROOT}" || exit 1
 
-if [[ ! -f "${ROOT}/training.env" ]]; then
-  die "Missing training.env — local: cp training.env.local.example training.env && bash scripts/train_local.sh"
-fi
+ENV_FILE="${TRAINING_ENV_FILE:-${ROOT}/training.env}"
+[[ -f "${ENV_FILE}" ]] || {
+  printf '==> [error] Missing %s\n' "${ENV_FILE}" >&2
+  printf '    Local:  cp training.env.local.example training.env\n' >&2
+  printf '    RunPod: cp training.env.runpod.example training.env\n' >&2
+  exit 1
+}
 # shellcheck disable=SC1091
-source "${ROOT}/training.env"
+source "${ENV_FILE}"
+
+die() { printf '==> [error] %s\n' "$*" >&2; exit 1; }
+log() { printf '==> %s\n' "$*"; }
 
 DATASET_PATH="${DATASET_PATH:-}"
 LORA_NAME="${LORA_NAME:-my-lora}"
@@ -27,74 +30,48 @@ TRAIN_PRESET="${TRAIN_PRESET:-configs/train_lora_lens_base_24gb.yaml}"
 STEPS="${STEPS:-8000}"
 SAVE_EVERY="${SAVE_EVERY:-250}"
 SAMPLE_EVERY="${SAMPLE_EVERY:-400}"
-TRIGGER_WORD="${TRIGGER_WORD:-mytrigger}"
+TRIGGER_WORD="${TRIGGER_WORD:-}"
 MODEL_REPO="${MODEL_REPO:-${ROOT}/models/Lens-Base}"
 [[ "${MODEL_REPO}" != /* ]] && MODEL_REPO="${ROOT}/${MODEL_REPO#./}"
-DISABLE_MXFP4="${DISABLE_MXFP4:-false}"
+DISABLE_MXFP4="${DISABLE_MXFP4:-true}"
 RESOLUTION="${RESOLUTION:-0}"
-BASELINE_CONTROL="${BASELINE_CONTROL:-true}"
+BASELINE_CONTROL="${BASELINE_CONTROL:-false}"
 RESUME_FROM="${RESUME_FROM:-}"
 LORA_RANK="${LORA_RANK:-}"
 LORA_ALPHA="${LORA_ALPHA:-}"
 
-die() { printf '==> [error] %s\n' "$*" >&2; exit 1; }
-log() { printf '==> %s\n' "$*"; }
-
-EXTRA_ARGS=()
-[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
-  sed -n '2,8p' "$0"
-  echo "Edit training.env — see training.env.example"
-  echo "Extra overrides: bash scripts/train.sh --set model.disable_mxfp4=true   # 16GB / no MXFP4"
-  exit 0
-}
-if [[ $# -gt 0 ]]; then
-  [[ "${1}" == "--" ]] && shift
-  EXTRA_ARGS=("$@")
-fi
-
 [[ -n "${DATASET_PATH}" ]] || die "Set DATASET_PATH in training.env"
-[[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH} (fix training.env — local paths, not /workspace)"
-[[ -f "${ROOT}/${TRAIN_PRESET}" ]] || die "TRAIN_PRESET not found: ${TRAIN_PRESET}"
-if [[ "${MODEL_REPO}" == microsoft/* ]]; then
-  :
-elif python "${ROOT}/scripts/assemble_lens_repo.py" --output "${MODEL_REPO}" --check 2>/dev/null; then
-  :
-else
-  die "MODEL_REPO incomplete (${MODEL_REPO}) — run: bash scripts/bootstrap.sh"
-fi
+[[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH}"
 
-PRESET="${ROOT}/${TRAIN_PRESET}"
-[[ "${TRAIN_PRESET}" == /* ]] && PRESET="${TRAIN_PRESET}"
+PRESET="${TRAIN_PRESET}"
+[[ "${PRESET}" != /* ]] && PRESET="${ROOT}/${PRESET}"
+[[ -f "${PRESET}" ]] || die "TRAIN_PRESET not found: ${PRESET}"
 
-export DISABLE_MXFP4
-bash "${ROOT}/scripts/verify_gpu_ready.sh"
-
-log "Starting LoRA training: ${LORA_NAME}"
-log "  dataset  ${DATASET_PATH}"
-log "  output   ${OUTPUT_DIR}"
-log "  steps    ${STEPS}"
-log "  model    ${MODEL_REPO}"
-log "  preset   ${TRAIN_PRESET}"
-log "  mxfp4    disable=${DISABLE_MXFP4} (false=GPU MXFP4 cache; 16GB-only: true=CPU cache)"
-[[ -n "${RESUME_FROM:-}" ]] && log "  resume   ${RESUME_FROM}"
+EXTRA=()
+[[ "${1:-}" == "--" ]] && { shift; EXTRA=("$@"); }
 
 ARGS=(
   "${ROOT}/train.py" "${PRESET}"
-  --set "job.name=${LORA_NAME}"
-  --set "job.output_dir=${OUTPUT_DIR}"
-  --set "dataset.folder_path=${DATASET_PATH}"
-  --set "train.steps=${STEPS}"
-  --set "train.save_every=${SAVE_EVERY}"
-  --set "train.sample_every=${SAMPLE_EVERY}"
-  --set "model.repo_id=${MODEL_REPO}"
-  --set "model.disable_mxfp4=${DISABLE_MXFP4}"
-  --set "dataset.resolution=${RESOLUTION}"
-  --set "sample.trigger_word=${TRIGGER_WORD}"
-  --set "sample.baseline_control=${BASELINE_CONTROL}"
+  --dataset-path "${DATASET_PATH}"
+  --output-dir "${OUTPUT_DIR}"
+  --job-name "${LORA_NAME}"
+  --model-repo "${MODEL_REPO}"
+  --steps "${STEPS}"
+  --save-every "${SAVE_EVERY}"
+  --sample-every "${SAMPLE_EVERY}"
+  --resolution "${RESOLUTION}"
 )
-[[ -n "${LORA_RANK}" ]] && ARGS+=(--set "lora.rank=${LORA_RANK}")
-[[ -n "${LORA_ALPHA}" ]] && ARGS+=(--set "lora.alpha=${LORA_ALPHA}")
-[[ -n "${RESUME_FROM}" ]] && ARGS+=(--set "train.resume_from=${RESUME_FROM}" --set "sample.baseline_control=false")
-[[ ${#EXTRA_ARGS[@]} -gt 0 ]] && ARGS+=("${EXTRA_ARGS[@]}")
+[[ -n "${TRIGGER_WORD}" ]] && ARGS+=(--trigger-word "${TRIGGER_WORD}")
+[[ "${DISABLE_MXFP4}" == "true" ]] && ARGS+=(--disable-mxfp4) || ARGS+=(--no-disable-mxfp4)
+[[ "${BASELINE_CONTROL}" == "true" ]] && ARGS+=(--baseline-control) || ARGS+=(--no-baseline-control)
+[[ -n "${RESUME_FROM}" ]] && ARGS+=(--resume "${RESUME_FROM}")
+[[ -n "${LORA_RANK}" ]] && ARGS+=(--lora-rank "${LORA_RANK}")
+[[ -n "${LORA_ALPHA}" ]] && ARGS+=(--lora-alpha "${LORA_ALPHA}")
+[[ ${#EXTRA[@]} -gt 0 ]] && ARGS+=("${EXTRA[@]}")
 
-exec python "${ARGS[@]}"
+export DISABLE_MXFP4
+bash "${ROOT}/scripts/verify_gpu_ready.sh" 2>/dev/null || true
+
+log "Command:"
+printf '  '; printf '%q ' "${ARGS[@]}"; printf '\n'
+exec "${ARGS[@]}"

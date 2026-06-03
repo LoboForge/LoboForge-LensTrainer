@@ -11,7 +11,7 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 | # | Script | Does |
 |---|--------|------|
 | 1 | `scripts/bootstrap.sh` | Apt deps, clone repo, venv, Lens package, **HF login**, **download `microsoft/Lens-Base` → `models/Lens-Base`**, smoke test, create `training.env` |
-| 2 | `scripts/train_local.sh` or `scripts/train_runpod.sh` | Read `training.env` and start LoRA training |
+| 2 | `python train.py … --dataset-path …` or `scripts/train_local.sh` | Explicit CLI flags; prints run summary before training |
 
 ### 1 — Bootstrap (once per GPU machine)
 
@@ -22,19 +22,20 @@ curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/mai
 
 ### 2 — Configure + train
 
-**Local (16GB+ workstation, your paths):**
+**Local — explicit flags (recommended; prints full command before run):**
 ```bash
-cp training.env.local.example training.env
-bash scripts/train_local.sh
+python train.py configs/train_lora_dual_character_24gb.yaml \
+  --dataset-path /home/wrath/Documents/LoboForge/DualCharacterLoras \
+  --output-dir /media/wrath/AI/LensTrainer-LoboForge/output/lens-lora-dual-character \
+  --model-repo /media/wrath/AI/LensTrainer-LoboForge/models/Lens-Base \
+  --steps 8000 --disable-mxfp4 --no-baseline-control --resume latest
 ```
 
-**RunPod (separate config — do not copy to local):**
-```bash
-cp training.env.runpod.example training.env
-bash scripts/train_runpod.sh
-```
+Or `cp training.env.local.example training.env` then `bash scripts/train_local.sh` (expands env → same flags on one visible `python train.py` line).
 
-Never mix `/workspace/...` paths on your PC or `/home/...` paths on a pod. `train_local.sh` / `train_runpod.sh` error if you use the wrong file.
+**RunPod:** `cp training.env.runpod.example training.env` then `bash scripts/train_runpod.sh`
+
+Precedence: YAML preset &lt; `--env-file` &lt; `--set` &lt; explicit CLI flags.
 
 | `training.env` variable | You set |
 |-------------------------|---------|
