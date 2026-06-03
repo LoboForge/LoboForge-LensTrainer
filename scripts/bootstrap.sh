@@ -132,22 +132,27 @@ prepare_workspace_dirs() {
 }
 
 hf_login_if_token() {
+  export LENS_TRAINER_ROOT="${INSTALL_DIR}"
   # shellcheck disable=SC1091
   source .venv/bin/activate
+  export PATH="${INSTALL_DIR}/.venv/bin:${PATH}"
   # shellcheck disable=SC1091
   source "${INSTALL_DIR}/scripts/hf_auth.sh"
 
   if [[ -n "${HF_TOKEN:-}" ]]; then
-    log "Hugging Face: applying HF_TOKEN"
-    hf_apply_token_env
-    hf_hub_login "${HF_TOKEN}" || warn "hf auth login failed — using token file/env only"
+    log "Hugging Face: HF_TOKEN via venv ($(_hf_python))"
+    if ! hf_hub_login "${HF_TOKEN}"; then
+      warn "hf CLI login failed — applied token file + huggingface_hub.login fallback"
+      hf_apply_token_env
+    fi
     return 0
   fi
   if hf_hub_logged_in; then
     log "Hugging Face: $(hf_hub_whoami)"
     return 0
   fi
-  warn "No HF_TOKEN — set export HF_TOKEN=hf_... or run: hf auth login"
+  warn "No HF_TOKEN — run:  bash scripts/hf_login.sh"
+  warn "  (do not use system hf before bootstrap — activate venv via runpod_env.sh first)"
   warn "Accept https://huggingface.co/microsoft/Lens-Base before training"
 }
 
@@ -187,8 +192,11 @@ Bootstrap complete — two scripts total:
   2) bash scripts/train.sh       (after editing training.env)
 
   cd ${INSTALL_DIR}
-  nano training.env    # DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, TRAIN_PRESET, ...
+  bash scripts/hf_login.sh       # if HF_TOKEN not set during bootstrap
+  nano training.env              # DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, ...
   bash scripts/train.sh
+
+  Do not run bare \`hf auth login\` before sourcing the venv — use scripts/hf_login.sh
 
 Re-bootstrap:  bash scripts/bootstrap.sh
 ================================================================================

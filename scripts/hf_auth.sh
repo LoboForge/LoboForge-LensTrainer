@@ -1,6 +1,53 @@
 #!/usr/bin/env bash
-# Hugging Face auth helpers — supports new `hf` CLI and legacy `huggingface-cli`.
-# Usage:  source scripts/hf_auth.sh
+# Hugging Face auth — always use the project venv (system `hf` on RunPod is often wrong).
+# Usage:
+#   source scripts/runpod_env.sh
+#   bash scripts/hf_login.sh
+#   # or:  export HF_TOKEN=hf_... && bash scripts/hf_login.sh
+
+_hf_repo_root() {
+  if [[ -n "${LENS_TRAINER_ROOT:-}" ]]; then
+    printf '%s' "${LENS_TRAINER_ROOT}"
+    return 0
+  fi
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  printf '%s' "${here}"
+}
+
+_hf_venv_bin() {
+  local root
+  root="$(_hf_repo_root)"
+  if [[ -d "${root}/.venv/bin" ]]; then
+    printf '%s/bin' "${root}/.venv"
+    return 0
+  fi
+  if [[ -n "${VIRTUAL_ENV:-}" && -d "${VIRTUAL_ENV}/bin" ]]; then
+    printf '%s/bin' "${VIRTUAL_ENV}"
+    return 0
+  fi
+  return 1
+}
+
+_hf_python() {
+  local venv_bin
+  if venv_bin="$(_hf_venv_bin)"; then
+    printf '%s/python' "${venv_bin}"
+    return 0
+  fi
+  command -v python3 2>/dev/null || command -v python
+}
+
+_hf_cli() {
+  local venv_bin
+  if venv_bin="$(_hf_venv_bin)"; then
+    if [[ -x "${venv_bin}/hf" ]]; then
+      printf '%s/hf' "${venv_bin}"
+      return 0
+    fi
+  fi
+  return 1
+}
 
 hf_apply_token_env() {
   if [[ -n "${HF_TOKEN:-}" ]]; then
@@ -13,6 +60,21 @@ hf_apply_token_env() {
   fi
 }
 
+hf_hub_login_python() {
+  local token="${1:-${HF_TOKEN:-}}"
+  [[ -n "${token}" ]] || return 1
+  local py
+  py="$(_hf_python)"
+  HF_TOKEN="${token}" HUGGINGFACE_HUB_TOKEN="${token}" "${py}" - <<'PY'
+import os
+from huggingface_hub import login
+
+token = os.environ["HF_TOKEN"]
+login(token=token, add_to_git_credential=True)
+print("huggingface_hub.login ok")
+PY
+}
+
 hf_hub_login() {
   local token="${1:-${HF_TOKEN:-}}"
   if [[ -z "${token}" ]]; then
@@ -20,34 +82,34 @@ hf_hub_login() {
   fi
   export HF_TOKEN="${token}"
   export HUGGINGFACE_HUB_TOKEN="${token}"
+  hf_apply_token_env
 
-  if command -v hf >/dev/null 2>&1; then
-    # New Hugging Face CLI (huggingface_hub >= 1.0 on many cloud images).
-    if hf auth login --token "${token}" </dev/null 2>/dev/null; then
+  local hf_cmd
+  if hf_cmd="$(_hf_cli)"; then
+    if "${hf_cmd}" auth login --token "${token}" </dev/null 2>/dev/null; then
       return 0
     fi
-    # Some builds only accept interactive login; token file still works for downloads.
-    hf_apply_token_env
-    return 0
   fi
+
   if command -v huggingface-cli >/dev/null 2>&1; then
-    huggingface-cli login --token "${token}" --add-to-git-credential </dev/null
-    return $?
+    local venv_bin
+    if venv_bin="$(_hf_venv_bin)" && [[ -x "${venv_bin}/huggingface-cli" ]]; then
+      "${venv_bin}/huggingface-cli" login --token "${token}" --add-to-git-credential </dev/null && return 0
+    fi
   fi
-  # Libraries read HUGGINGFACE_HUB_TOKEN / HF_TOKEN without a CLI.
-  return 0
+
+  hf_hub_login_python "${token}"
 }
 
 hf_hub_whoami() {
   hf_apply_token_env
-  if command -v hf >/dev/null 2>&1; then
-    hf auth whoami 2>/dev/null | head -1
-    return 0
+  local hf_cmd
+  if hf_cmd="$(_hf_cli)"; then
+    "${hf_cmd}" auth whoami 2>/dev/null | head -1 && return 0
   fi
-  if command -v huggingface-cli >/dev/null 2>&1; then
-    huggingface-cli whoami 2>/dev/null | head -1
-    return 0
-  fi
+  local py
+  py="$(_hf_python)"
+  "${py}" -c "from huggingface_hub import whoami; print(whoami()['name'])" 2>/dev/null && return 0
   if [[ -n "${HF_TOKEN:-}" ]]; then
     echo "(HF_TOKEN set in environment)"
     return 0

@@ -45,6 +45,13 @@ bash scripts/train.sh
 
 Resume: set `RESUME_FROM=latest` and `BASELINE_CONTROL=false` in `training.env`.
 
+**Hugging Face login** (must use project venv — not bare `hf` on RunPod):
+
+```bash
+export HF_TOKEN=hf_...
+bash scripts/hf_login.sh
+```
+
 Done when you have `OUTPUT_DIR/lora_final.safetensors`. See [Dataset layout](#dataset-layout) and [VRAM](#vram--system-requirements) below.
 
 ## Requirements
