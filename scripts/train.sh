@@ -49,12 +49,12 @@ EXTRA_ARGS=()
 [[ -n "${DATASET_PATH}" ]] || die "Set DATASET_PATH in training.env"
 [[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH}"
 [[ -f "${ROOT}/${TRAIN_PRESET}" ]] || die "TRAIN_PRESET not found: ${TRAIN_PRESET}"
-if [[ -f "${MODEL_REPO}/model_index.json" ]]; then
+if [[ "${MODEL_REPO}" == microsoft/* ]]; then
   :
-elif [[ "${MODEL_REPO}" == microsoft/* ]]; then
+elif python "${ROOT}/scripts/assemble_lens_repo.py" --output "${MODEL_REPO}" --check 2>/dev/null; then
   :
 else
-  die "MODEL_REPO not found (${MODEL_REPO}) — run: bash scripts/bootstrap.sh"
+  die "MODEL_REPO incomplete (${MODEL_REPO}) — run: bash scripts/bootstrap.sh"
 fi
 
 PRESET="${ROOT}/${TRAIN_PRESET}"

@@ -56,20 +56,37 @@ def _link_or_copy(src: Path, dest: Path, use_symlink: bool) -> None:
         shutil.copy2(src, dest)
 
 
+def _component_weights_present(component_dir: Path, index_name: str, single_name: str) -> bool:
+    single = component_dir / single_name
+    if single.is_file() and single.stat().st_size > 0:
+        return True
+    index_path = component_dir / index_name
+    if not index_path.is_file():
+        return False
+    with index_path.open("r", encoding="utf-8") as f:
+        index_data = json.load(f)
+    weight_map = index_data.get("weight_map") or {}
+    if not weight_map:
+        return False
+    shard_names = sorted(set(weight_map.values()))
+    return all((component_dir / name).is_file() and (component_dir / name).stat().st_size > 0 for name in shard_names)
+
+
 def is_complete_hf_repo(path: Path) -> bool:
     """Return True if path looks like a loadable Lens HF pipeline folder."""
+    path = path.expanduser()
     if not (path / "model_index.json").is_file():
         return False
-    te_index = path / "text_encoder" / "model.safetensors.index.json"
-    te_single = path / "text_encoder" / "model.safetensors"
-    if not te_index.is_file() and not te_single.is_file():
+    if not _component_weights_present(path / "text_encoder", "model.safetensors.index.json", "model.safetensors"):
         return False
-    tr_index = path / "transformer" / "diffusion_pytorch_model.safetensors.index.json"
-    tr_single = path / "transformer" / "diffusion_pytorch_model.safetensors"
-    if not tr_index.is_file() and not tr_single.is_file():
+    if not _component_weights_present(
+        path / "transformer",
+        "diffusion_pytorch_model.safetensors.index.json",
+        "diffusion_pytorch_model.safetensors",
+    ):
         return False
     vae = path / "vae" / "diffusion_pytorch_model.safetensors"
-    return vae.is_file()
+    return vae.is_file() and vae.stat().st_size > 0
 
 
 def resolve_model_repo(repo_id: str) -> str:
