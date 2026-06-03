@@ -74,18 +74,21 @@ Peak VRAM by phase (16GB preset):
 | Text precompute (default) | nothing (CPU) | ~0GB |
 | Mid-run samples | DiT + VAE swap | ~14–16GB |
 
-## RunPod (fresh GPU pod)
+## RunPod (GPU pod — same class as ComfyUI)
 
-**RunPod PyTorch** template, **24GB+** GPU, network volume on `/workspace`.
+**PyTorch GPU template**, volume on `/workspace`, **20GB+ VRAM** (4090 / L40 / etc.).
 
 ```bash
 export HF_TOKEN=hf_...
+export HF_HOME=/workspace/.cache/huggingface
 curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
-nano /workspace/LoboForge-LensTrainer/training.env
+# edit DATASET_PATH if needed, then:
 bash /workspace/LoboForge-LensTrainer/scripts/train.sh
 ```
 
-Upload dataset via SCP, set `DATASET_PATH` in `training.env`.
+Bootstrap installs **`kernels`** for MXFP4 on GPU. `train.sh` runs **`verify_gpu_ready.sh`** first and exits immediately if CUDA or kernels are missing (no more silent bf16 OOM).
+
+Default on `/workspace`: preset `configs/train_runpod_gpu.yaml`, `DISABLE_MXFP4=false`, `BASELINE_CONTROL=false` (skips step-0 control grid; previews still run every `sample_every` steps).
 
 ## Setup
 

@@ -149,11 +149,16 @@ write_training_env() {
   fi
   sed -i "s|^MODEL_REPO=.*|MODEL_REPO=${MODEL_PATH}|" "${env_file}" 2>/dev/null \
     || sed -i '' "s|^MODEL_REPO=.*|MODEL_REPO=${MODEL_PATH}|" "${env_file}" 2>/dev/null || true
+  if [[ -d /workspace ]]; then
+    sed -i "s|^TRAIN_PRESET=.*|TRAIN_PRESET=configs/train_runpod_gpu.yaml|" "${env_file}" 2>/dev/null \
+      || sed -i '' "s|^TRAIN_PRESET=.*|TRAIN_PRESET=configs/train_runpod_gpu.yaml|" "${env_file}" 2>/dev/null || true
+    grep -q '^BASELINE_CONTROL=' "${env_file}" || echo "BASELINE_CONTROL=false" >>"${env_file}"
+  fi
 }
 
 smoke_test() {
   [[ "${SKIP_SMOKE_TEST}" == "1" ]] && return 0
-  log "Smoke test (CUDA + lens import)"
+  log "Smoke test (CUDA + lens + MXFP4 kernels)"
   # shellcheck disable=SC1091
   source "${INSTALL_DIR}/scripts/_trainer_env.sh"
   activate_trainer_env "${INSTALL_DIR}"
@@ -161,7 +166,10 @@ smoke_test() {
 import torch, lens
 assert torch.cuda.is_available(), "CUDA required for training"
 print("ok:", torch.cuda.get_device_name(0), "| lens:", lens.__file__)
+import kernels  # noqa: F401
+print("ok: kernels (MXFP4 on GPU)")
 PY
+  DISABLE_MXFP4=false bash "${INSTALL_DIR}/scripts/verify_gpu_ready.sh"
 }
 
 print_done() {

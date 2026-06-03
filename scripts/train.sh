@@ -64,6 +64,9 @@ fi
 PRESET="${ROOT}/${TRAIN_PRESET}"
 [[ "${TRAIN_PRESET}" == /* ]] && PRESET="${TRAIN_PRESET}"
 
+export DISABLE_MXFP4
+bash "${ROOT}/scripts/verify_gpu_ready.sh"
+
 log "Starting LoRA training: ${LORA_NAME}"
 log "  dataset  ${DATASET_PATH}"
 log "  output   ${OUTPUT_DIR}"
