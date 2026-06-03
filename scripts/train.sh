@@ -42,9 +42,13 @@ EXTRA_ARGS=()
 [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && {
   sed -n '2,8p' "$0"
   echo "Edit training.env — see training.env.example"
+  echo "Extra overrides: bash scripts/train.sh --set model.disable_mxfp4=false"
   exit 0
 }
-[[ "${1:-}" == "--" ]] && { shift; EXTRA_ARGS=("$@"); }
+if [[ $# -gt 0 ]]; then
+  [[ "${1}" == "--" ]] && shift
+  EXTRA_ARGS=("$@")
+fi
 
 [[ -n "${DATASET_PATH}" ]] || die "Set DATASET_PATH in training.env"
 [[ -d "${DATASET_PATH}" ]] || die "DATASET_PATH not found: ${DATASET_PATH}"
@@ -66,6 +70,7 @@ log "  output   ${OUTPUT_DIR}"
 log "  steps    ${STEPS}"
 log "  model    ${MODEL_REPO}"
 log "  preset   ${TRAIN_PRESET}"
+log "  mxfp4    disable=${DISABLE_MXFP4} (false = GPU text cache; override with --set model.disable_mxfp4=false)"
 
 ARGS=(
   "${ROOT}/train.py" "${PRESET}"
