@@ -147,6 +147,15 @@ def prepare_for_sampling(pipe, lora_model, device: torch.device, cpu_offload: bo
     prepare_for_inference(pipe, lora_model, device, low_vram=cpu_offload)
 
 
+def _mxfp4_kernels_available() -> bool:
+    try:
+        import kernels  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
 def load_lens_pipeline(cfg: TrainerConfig):
     from lens import LensGptOssEncoder, LensPipeline
 
@@ -157,6 +166,12 @@ def load_lens_pipeline(cfg: TrainerConfig):
     try:
         from transformers import Mxfp4Config
 
+        if not cfg.model.disable_mxfp4 and not _mxfp4_kernels_available():
+            log_warn(
+                "MXFP4 requires the kernels package — without it transformers loads "
+                "bf16 (~40GB) and will OOM on 20GB GPUs. Run: "
+                "pip install 'kernels>=0.12.0,<0.15' 'triton>=3.4.0'"
+            )
         text_encoder_kwargs["quantization_config"] = Mxfp4Config(
             dequantize=cfg.model.disable_mxfp4
         )

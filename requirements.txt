@@ -14,9 +14,9 @@ pyyaml>=6.0
 tqdm>=4.66.0
 bitsandbytes>=0.45.0
 
-# Optional: MXFP4 text encoder on GPU (model.disable_mxfp4=false).
-# kernels>=0.15 breaks transformers 5.9 imports; pin until upstream catches up.
-# kernels>=0.12.0,<0.15
+# MXFP4 text encoder on GPU (default disable_mxfp4=false). Pin: 0.15+ breaks transformers 5.9.
+kernels>=0.12.0,<0.15
+triton>=3.4.0
 
 # Microsoft Lens: clone to vendor/Lens (see scripts/install_microsoft_lens.sh).
 # Upstream has no pyproject.toml — pip install from GitHub will fail.
