@@ -11,7 +11,7 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 | # | Script | Does |
 |---|--------|------|
 | 1 | `scripts/bootstrap.sh` | Apt deps, clone repo, venv, Lens package, **HF login**, **download `microsoft/Lens-Base` → `models/Lens-Base`**, smoke test, create `training.env` |
-| 2 | `scripts/train.sh` | Read `training.env` and start LoRA training |
+| 2 | `scripts/train_local.sh` or `scripts/train_runpod.sh` | Read `training.env` and start LoRA training |
 
 ### 1 — Bootstrap (once per GPU machine)
 
@@ -22,14 +22,19 @@ curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/mai
 
 ### 2 — Configure + train
 
-**Local:**
+**Local (16GB+ workstation, your paths):**
 ```bash
-cd /path/to/LensTrainer-LoboForge
-cp training.env.example training.env   # edit DATASET_PATH if needed
-bash scripts/train.sh
+cp training.env.local.example training.env
+bash scripts/train_local.sh
 ```
 
-**RunPod:** `cp training.env.runpod.example training.env` then `bash scripts/train.sh`
+**RunPod (separate config — do not copy to local):**
+```bash
+cp training.env.runpod.example training.env
+bash scripts/train_runpod.sh
+```
+
+Never mix `/workspace/...` paths on your PC or `/home/...` paths on a pod. `train_local.sh` / `train_runpod.sh` error if you use the wrong file.
 
 | `training.env` variable | You set |
 |-------------------------|---------|

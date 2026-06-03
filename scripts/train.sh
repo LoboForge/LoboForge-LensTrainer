@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# LensTrainer-LoboForge — ONE training script (run after bootstrap.sh).
+# LensTrainer-LoboForge — shared trainer (sourced via training.env).
 #
-#   nano training.env    # DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, ...
-#   bash scripts/train.sh
+#   Local:   bash scripts/train_local.sh
+#   RunPod:  bash scripts/train_runpod.sh
 # =============================================================================
 set -euo pipefail
 
@@ -15,7 +15,7 @@ source "${ROOT}/scripts/_trainer_env.sh"
 activate_trainer_env "${ROOT}" || exit 1
 
 if [[ ! -f "${ROOT}/training.env" ]]; then
-  die "Missing training.env — local: cp training.env.example training.env | RunPod: cp training.env.runpod.example training.env"
+  die "Missing training.env — local: cp training.env.local.example training.env && bash scripts/train_local.sh"
 fi
 # shellcheck disable=SC1091
 source "${ROOT}/training.env"

@@ -180,8 +180,8 @@ print_done() {
 BOOTSTRAP DONE
 
   cd ${INSTALL_DIR}
-  nano training.env          # set DATASET_PATH, LORA_NAME, STEPS, TRIGGER_WORD, ...
-  bash scripts/train.sh      # start training
+  cp training.env.runpod.example training.env   # edit DATASET_PATH if needed
+  bash scripts/train_runpod.sh
 
   Model:    ${MODEL_PATH}
   HF cache: \${HF_HOME:-/workspace/.cache/huggingface}
