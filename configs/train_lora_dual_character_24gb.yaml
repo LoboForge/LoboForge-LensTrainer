@@ -1,0 +1,81 @@
+# Dual-character LoRA (Ken/Dakota + Sarah/Kelsey) — 48× 1024² PNGs with sidecar captions
+# Dataset: /home/wrath/Documents/LoboForge/DualCharacterLoras
+job:
+  name: lens-lora-dual-character
+  output_dir: ./output/lens-lora-dual-character
+
+model:
+  repo_id: microsoft/Lens-Base
+  dtype: bfloat16
+  disable_mxfp4: true          # RTX 50xx: --set model.disable_mxfp4=false for faster text cache
+  cpu_offload: true
+  cache_text_embeddings: true
+
+dataset:
+  folder_path: /home/wrath/Documents/LoboForge/DualCharacterLoras
+  caption_ext: txt
+  resolution: 0                # auto: native size per image (all 1024×1024 here; no stretch)
+  max_training_edge: 0         # optional cap for huge sources, e.g. 1536 on 16GB
+  cache_latents: true
+  max_sequence_length: 512
+
+lora:
+  rank: 16
+  alpha: 16
+  dropout: 0.0
+  target_modules:
+    - img_qkv
+    - txt_qkv
+    - to_out.0
+    - to_add_out
+    - img_mlp.w1
+    - img_mlp.w2
+    - img_mlp.w3
+    - txt_mlp.w1
+    - txt_mlp.w2
+    - txt_mlp.w3
+    - txt_in
+    - img_in
+    - proj_out
+
+train:
+  steps: 8000
+  batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 1.0e-4
+  optimizer: adamw8bit
+  weight_decay: 0.01
+  gradient_checkpointing: true
+  guidance_scale: 5.0
+  timestep_type: shift
+  save_every: 250
+  sample_every: 400
+  sample_every_early: 0
+  sample_early_until: 500
+  seed: 42
+  max_grad_norm: 1.0
+
+sample:
+  trigger_word: ""             # captions are full sentences; prompts below are copied from .txt files
+  width: 0                     # 0 = use dataset dominant size (1024×1024)
+  height: 0
+  steps: 50
+  cfg: 5.0
+  seed: 42
+  walk_seed: true
+  baseline_control: true
+
+  # Verbatim lines from training captions (item_*.txt) — same wording the model sees
+  prompts:
+    - name: standing_forward_laughing
+      prompt: "Ken is a handsome young man in a business suitDakota is a pretty young goth girl with long black hair and fishnetthe are standing together facing forward and laughing"
+    - name: campfire_marshmallows
+      prompt: "Sarah is a handsome young man in a business suitKelsey is a pretty young goth girl with long black hair and fishnetthey are sitting next to camp fire together roasting marksmallows at night, photo realistic, 8k high resolution"
+    - name: beach_holding_hands
+      prompt: "Ken is a handsome young man in a business suitDakota is a pretty young goth girl with long black hair and fishnetthey are holding hands and walking along the beach, photo realistic, 8k high resolution"
+    - name: side_view_facing
+      prompt: "Ken is a handsome young man in a business suitDakota is a pretty young goth girl with long black hair and fishnetthey are both standing sideways facing each other giving a side view of both, full body, transparent background"
+    - name: medieval_tavern_bar
+      prompt: "Ken is a handsome young man in a business suitDakota is a pretty young goth girl with long black hair and fishnetthey are sitting at a bar in a medival tavern, photo realistic, 8k high resolution"
+    - name: rear_view_full_body
+      prompt: "Ken is a handsome young man in a business suitDakota is a pretty young goth girl with long black hair and fishnetthey are both facing away from the viewer - rear view. full body, transparent background, full body, transparent background"

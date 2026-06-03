@@ -10,8 +10,6 @@ from tqdm import tqdm
 
 # SGR foreground codes
 _RESET = "\033[0m"
-_DIM = "\033[2m"
-_BOLD = "\033[1m"
 _COLORS = {
     "train": "35",      # magenta — main training bar
     "cache": "36",      # cyan — precompute / cache
@@ -39,12 +37,13 @@ _ENABLED = _color_enabled()
 def _style(text: str, code: str, *, bold: bool = False, dim: bool = False) -> str:
     if not _ENABLED:
         return text
-    prefix = "\033["
+    sgr: list[str] = []
     if bold:
-        prefix += f"{_BOLD};"
+        sgr.append("1")
     if dim:
-        prefix += f"{_DIM};"
-    prefix += f"{code}m"
+        sgr.append("2")
+    sgr.append(code)
+    prefix = "\033[" + ";".join(sgr) + "m"
     return f"{prefix}{text}{_RESET}"
 
 

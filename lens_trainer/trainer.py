@@ -27,7 +27,10 @@ from lens_trainer.encoding import (
     encode_prompt_features,
     torch_dtype,
 )
-from lens_trainer.lens_patches import apply_lens_training_patches, enable_lens_gradient_checkpointing
+from lens_trainer.lens_patches import (
+    enable_lens_gradient_checkpointing,
+    prepare_lens_transformer_for_load,
+)
 from lens_trainer.lora import (
     attach_lora,
     find_resume_checkpoint,
@@ -128,8 +131,6 @@ def prepare_for_sampling(pipe, lora_model, device: torch.device, cpu_offload: bo
 def load_lens_pipeline(cfg: TrainerConfig):
     from lens import LensGptOssEncoder, LensPipeline
 
-    apply_lens_training_patches()
-
     dtype = torch_dtype(cfg.model.dtype)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -153,6 +154,7 @@ def load_lens_pipeline(cfg: TrainerConfig):
         text_encoder=text_encoder,
         torch_dtype=dtype,
     )
+    prepare_lens_transformer_for_load(pipe.transformer)
 
     if cfg.model.cpu_offload and device.type == "cuda":
         pipe.enable_model_cpu_offload()
@@ -198,11 +200,13 @@ def precompute_caches(
         ):
             if dataset.cfg.cache_latents and dataset.load_latent_cache(index) is None:
                 try:
+                    train_h, train_w = dataset.get_training_size(index)
                     encoded = _encode_batch_latents(
                         pipe,
                         dataset,
                         index,
-                        dataset.resolution,
+                        train_h,
+                        train_w,
                         device,
                         dtype,
                     )
@@ -254,11 +258,28 @@ def precompute_caches(
 
 
 def collate_batch(batch: List[dict]) -> dict:
+    heights = [item["height"] for item in batch]
+    widths = [item["width"] for item in batch]
+    if len(set(zip(heights, widths))) > 1:
+        raise ValueError(
+            "Batch contains mixed training sizes. Use train.batch_size: 1 or a "
+            "dataset where every image shares the same snapped height×width."
+        )
     return {
         "index": [item["index"] for item in batch],
         "caption": [item["caption"] for item in batch],
-        "resolution": batch[0]["resolution"],
+        "height": heights[0],
+        "width": widths[0],
     }
+
+
+def _apply_sample_size_from_dataset(cfg: TrainerConfig, dataset: LensDataset) -> None:
+    """When sample height/width are 0, match the dataset's dominant training size."""
+    sample_h, sample_w = dataset.primary_sample_size
+    if cfg.sample.height <= 0:
+        cfg.sample.height = sample_h
+    if cfg.sample.width <= 0:
+        cfg.sample.width = sample_w
 
 
 @torch.no_grad()
@@ -266,7 +287,8 @@ def _encode_batch_latents(
     pipe,
     dataset: LensDataset,
     index: int,
-    resolution: int,
+    height: int,
+    width: int,
     device: torch.device,
     dtype: torch.dtype,
 ) -> torch.Tensor:
@@ -275,8 +297,8 @@ def _encode_batch_latents(
     encoded = encode_images_to_latents(
         pipe,
         [image],
-        height=resolution,
-        width=resolution,
+        height=height,
+        width=width,
         device=device,
         dtype=dtype,
     )
@@ -434,6 +456,7 @@ class LensTrainer:
         pipe, device, dtype = load_lens_pipeline(cfg)
 
         dataset = LensDataset(cfg.dataset, cache_dir=self.cache_dir)
+        _apply_sample_size_from_dataset(cfg, dataset)
         precompute_caches(
             pipe,
             dataset,
@@ -514,9 +537,10 @@ class LensTrainer:
                     if global_step >= cfg.train.steps:
                         break
 
-                    resolution = batch["resolution"]
-                    latent_h = resolution // pipe.vae_scale_factor
-                    latent_w = resolution // pipe.vae_scale_factor
+                    height = int(batch["height"])
+                    width = int(batch["width"])
+                    latent_h = height // pipe.vae_scale_factor
+                    latent_w = width // pipe.vae_scale_factor
 
                     latents_list = []
                     text_features_list: List[List[torch.Tensor]] = []
@@ -531,7 +555,8 @@ class LensTrainer:
                                 pipe,
                                 dataset,
                                 index,
-                                resolution,
+                                height,
+                                width,
                                 device,
                                 dtype,
                             )

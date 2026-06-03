@@ -24,3 +24,4 @@ vendor/
 wandb/
 dataset_cache/
 .huggingface/
+training.env

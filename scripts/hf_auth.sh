@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # Hugging Face auth — always use the project venv (system `hf` on RunPod is often wrong).
-# Usage:
-#   source scripts/runpod_env.sh
-#   bash scripts/hf_login.sh
-#   # or:  export HF_TOKEN=hf_... && bash scripts/hf_login.sh
+# Used internally by scripts/bootstrap.sh (do not run standalone).
 
 _hf_repo_root() {
   if [[ -n "${LENS_TRAINER_ROOT:-}" ]]; then
@@ -84,6 +81,11 @@ hf_hub_login() {
   export HUGGINGFACE_HUB_TOKEN="${token}"
   hf_apply_token_env
 
+  # Python login first — RunPod system `hf` / `huggingface-cli` are often broken.
+  if hf_hub_login_python "${token}" 2>/dev/null; then
+    return 0
+  fi
+
   local hf_cmd
   if hf_cmd="$(_hf_cli)"; then
     if "${hf_cmd}" auth login --token "${token}" </dev/null 2>/dev/null; then
@@ -91,11 +93,9 @@ hf_hub_login() {
     fi
   fi
 
-  if command -v huggingface-cli >/dev/null 2>&1; then
-    local venv_bin
-    if venv_bin="$(_hf_venv_bin)" && [[ -x "${venv_bin}/huggingface-cli" ]]; then
-      "${venv_bin}/huggingface-cli" login --token "${token}" --add-to-git-credential </dev/null && return 0
-    fi
+  local venv_bin
+  if venv_bin="$(_hf_venv_bin)" && [[ -x "${venv_bin}/huggingface-cli" ]]; then
+    "${venv_bin}/huggingface-cli" login --token "${token}" --add-to-git-credential </dev/null 2>/dev/null && return 0
   fi
 
   hf_hub_login_python "${token}"

@@ -1,4 +1,10 @@
-"""Runtime patches for the microsoft/Lens package used during training."""
+"""Training-only hooks for the official microsoft/Lens DiT.
+
+We do not replace Lens weights, config.json, or model classes. The only change
+here is an optional ``forward`` wrapper so block-wise activation checkpointing
+works on 16GB GPUs. ``LensTransformer2DModel.__init__`` is left untouched so
+Diffusers loads Hub config fields without spurious warnings.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +14,11 @@ import torch
 
 
 def apply_lens_training_patches() -> None:
-    """Idempotent patches applied before loading LensPipeline."""
-    _patch_lens_transformer_gradient_checkpointing()
+    """Install the forward checkpointing hook (safe to call after ``from_pretrained``)."""
+    _patch_lens_transformer_forward_checkpointing()
 
 
-def _patch_lens_transformer_gradient_checkpointing() -> None:
+def _patch_lens_transformer_forward_checkpointing() -> None:
     try:
         from lens.transformer import LensTransformer2DModel
     except ImportError:
@@ -21,12 +27,6 @@ def _patch_lens_transformer_gradient_checkpointing() -> None:
     if getattr(LensTransformer2DModel, "_lens_trainer_gc_patch", False):
         return
     LensTransformer2DModel._lens_trainer_gc_patch = True
-
-    original_init = LensTransformer2DModel.__init__
-
-    def __init__(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
-        self.gradient_checkpointing = False
 
     original_forward = LensTransformer2DModel.forward
 
@@ -145,8 +145,13 @@ def _patch_lens_transformer_gradient_checkpointing() -> None:
         hidden_states = self.norm_out(hidden_states, temb)
         return self.proj_out(hidden_states)
 
-    LensTransformer2DModel.__init__ = __init__
     LensTransformer2DModel.forward = forward
+
+
+def prepare_lens_transformer_for_load(transformer: torch.nn.Module) -> None:
+    """After Hub load: ensure checkpointing flag exists and is off until training enables it."""
+    apply_lens_training_patches()
+    transformer.gradient_checkpointing = False
 
 
 def enable_lens_gradient_checkpointing(model: torch.nn.Module) -> None:

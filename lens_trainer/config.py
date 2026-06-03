@@ -28,7 +28,10 @@ class ModelConfig:
 class DatasetConfig:
     folder_path: str = "./dataset"
     caption_ext: str = "txt"
+    # Square side length when > 0. Use 0 for auto: each image trains at native size (snapped to 16px).
     resolution: int = 1024
+    # Auto mode only: scale down if long edge exceeds this (0 = no cap). Helps huge sources on 16GB VRAM.
+    max_training_edge: int = 0
     cache_latents: bool = True
     max_sequence_length: int = 512
 
