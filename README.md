@@ -6,34 +6,32 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 
 ## Quickstart (TL;DR)
 
-**Clone, install, train:**
+**One bootstrap** — clone, system deps, venv, Microsoft Lens, Hugging Face, smoke test. You only configure dataset + training after.
 
 ```bash
-git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
-cd LoboForge-LensTrainer
-./scripts/quickstart.sh
-source .venv/bin/activate
-hf auth login   # once — accept microsoft/Lens-Base on the Hub first (or: export HF_TOKEN=...)
+export HF_TOKEN=hf_your_token_here   # recommended (gated Lens-Base)
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
+```
 
-python train.py configs/train_lora_lens_base_24gb.yaml \
+**Train** (from install dir — `/workspace/LoboForge-LensTrainer` on RunPod):
+
+```bash
+source scripts/runpod_env.sh
+./train.sh configs/train_lora_lens_base_24gb.yaml \
   --set dataset.folder_path=/path/to/your/dataset \
   --set sample.trigger_word=your_trigger \
   --set job.output_dir=./output/my-lora
 ```
 
-**Or one curl (clone + venv + pip):**
+**Optional — bootstrap and start training in one go:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/quickstart.sh | bash
-cd ~/LoboForge-LensTrainer && source .venv/bin/activate
-# then hf auth login and the python train.py command above
-```
-
-**Auto-train after install** (optional):
-
-```bash
-DATASET_PATH=/path/to/images TRIGGER_WORD=Willow OUTPUT_DIR=./output/willow \
-  bash scripts/quickstart.sh
+export HF_TOKEN=hf_...
+export DATASET_PATH=/workspace/DualCharacterLoras
+export START_TRAIN=1
+export TRAIN_CONFIG=configs/train_lora_dual_character_24gb.yaml
+export JOB_OUTPUT_DIR=/workspace/output/lens-lora-dual-character
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
 ```
 
 Done when you have `job.output_dir/lora_final.safetensors`. See [Dataset layout](#dataset-layout) and [VRAM](#vram--system-requirements) below before your first run.
@@ -74,50 +72,28 @@ Peak VRAM by phase (16GB preset):
 
 Use the official **RunPod PyTorch** template (CUDA 12.x, Ubuntu). Pick a **24GB+** GPU (e.g. RTX 4090). Mount a **network volume** at `/workspace` so repo, HF cache, and `output/` survive restarts.
 
-In **Jupyter terminal**, **Web terminal**, or **SSH (Direct TCP)** — one command:
+In **Jupyter terminal**, **Web terminal**, or **SSH (Direct TCP)**:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/setup_runpod.sh | bash
+export HF_TOKEN=hf_your_token_here
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
 ```
 
-Or from a clone:
+Upload a dataset with **Direct TCP SSH** (supports SCP), then train:
 
 ```bash
-cd /workspace
-git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
-cd LoboForge-LensTrainer
-bash scripts/setup_runpod.sh
-```
+scp -P <PORT> -i ~/.ssh/id_ed25519 -r /path/to/DualCharacterLoras root@<POD_IP>:/workspace/
 
-The script installs apt packages (`git`, `python3-venv`, build tools), clones/updates the repo under `/workspace/LoboForge-LensTrainer`, creates `.venv`, installs `requirements.txt`, checks `nvidia-smi`, smoke-tests `torch` + `lens`, and writes `scripts/runpod_env.sh`.
-
-Optional:
-
-```bash
-export HF_TOKEN=hf_your_token_here   # auto-login during setup
-export LOBFORGE_TRAINER_DIR=/workspace/LoboForge-LensTrainer
-bash scripts/setup_runpod.sh
-```
-
-Upload a dataset with **Direct TCP SSH** (supports SCP), e.g.:
-
-```bash
-scp -P 12388 -i ~/.ssh/id_ed25519 -r /path/to/DualCharacterLoras root@YOUR_POD_IP:/workspace/
-```
-
-Then train:
-
-```bash
-source /workspace/LoboForge-LensTrainer/scripts/runpod_env.sh
-python train.py configs/train_lora_dual_character_24gb.yaml \
-  --set model.repo_id=microsoft/Lens-Base \
+cd /workspace/LoboForge-LensTrainer
+source scripts/runpod_env.sh
+./train.sh configs/train_lora_dual_character_24gb.yaml \
   --set dataset.folder_path=/workspace/DualCharacterLoras \
   --set job.output_dir=/workspace/output/lens-lora-dual-character
 ```
 
 ## Setup
 
-Manual install (if you skip `quickstart.sh`):
+Manual install (if you skip `scripts/bootstrap.sh`):
 
 ```bash
 git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
