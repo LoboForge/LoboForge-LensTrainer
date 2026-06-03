@@ -132,9 +132,18 @@ def _detach_text_encoder_offload(text_encoder, hook) -> None:
 
 def prepare_for_training(pipe, lora_model, device: torch.device) -> None:
     """Park TE/VAE on CPU and keep the LoRA-wrapped transformer on the train device."""
+    import gc
+
     _teardown_cpu_offload(pipe)
     pipe.text_encoder.to("cpu")
     pipe.vae.to("cpu")
+    if pipe.transformer is not lora_model:
+        pipe.transformer.to("cpu")
+    lora_model.to("cpu")
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
     lora_model.to(device)
     lora_model.train()
     pipe.transformer = lora_model
@@ -523,6 +532,13 @@ class LensTrainer:
             )
 
         set_seed(cfg.train.seed)
+        vram_gb = _gpu_total_vram_gb()
+        if vram_gb > 0 and vram_gb < 17.0 and not cfg.model.disable_mxfp4:
+            log_warn(
+                f"GPU ~{vram_gb:.0f}GB VRAM — forcing disable_mxfp4=true (16GB path). "
+                "Set DISABLE_MXFP4=false only on 20GB+ GPUs."
+            )
+            cfg.model.disable_mxfp4 = True
         pipe, device, dtype = load_lens_pipeline(cfg)
 
         dataset = LensDataset(cfg.dataset, cache_dir=self.cache_dir)

@@ -19,7 +19,7 @@ class JobConfig:
 class ModelConfig:
     repo_id: str = "microsoft/Lens-Base"
     dtype: str = "bfloat16"
-    disable_mxfp4: bool = False
+    disable_mxfp4: bool = True
     cpu_offload: bool = False
     cache_text_embeddings: bool = True
 
