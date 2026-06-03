@@ -81,6 +81,19 @@ def _teardown_cpu_offload(pipe) -> None:
         pipe.remove_all_hooks()
 
 
+def _gpu_total_vram_gb() -> float:
+    if not torch.cuda.is_available():
+        return 0.0
+    return torch.cuda.get_device_properties(0).total_memory / (1024**3)
+
+
+def _is_cuda_oom(exc: BaseException) -> bool:
+    if not isinstance(exc, RuntimeError):
+        return False
+    msg = str(exc).lower()
+    return "out of memory" in msg or "cuda error" in msg
+
+
 def _release_gpu_memory(pipe) -> None:
     """Move all pipeline modules to CPU and drop cached CUDA allocations."""
     import gc
@@ -92,6 +105,11 @@ def _release_gpu_memory(pipe) -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+def _park_pipeline_for_text_cache(pipe) -> None:
+    """Leave only headroom for layer-wise text-encoder work (DiT must not sit on GPU)."""
+    _release_gpu_memory(pipe)
 
 
 def _attach_text_encoder_offload(text_encoder, device: torch.device):
@@ -218,47 +236,78 @@ def precompute_caches(
         _release_gpu_memory(pipe)
 
     if needs_text:
-        _release_gpu_memory(pipe)
+        _park_pipeline_for_text_cache(pipe)
 
-        # Full-pipeline cpu_offload keeps the DiT (~13GB) in the hook chain and
-        # tries to swap whole components. For cache building we only need the TE.
-        # disable_mxfp4=true dequantizes GPT-OSS to bf16 (~40GB RAM); it never
-        # fits whole on 16GB VRAM, so default to CPU unless the user has MXFP4.
+        # disable_mxfp4=true → full bf16 TE on CPU (~40GB RAM).
         encode_on_cpu = disable_mxfp4 or device.type != "cuda"
         te_hook = None
+        vram_gb = _gpu_total_vram_gb()
         if encode_on_cpu:
             encode_device = torch.device("cpu")
             log_info(
-                "Text cache on CPU (disable_mxfp4=true). First caption can take 10–30+ min "
-                "with <64GB RAM. Set DISABLE_MXFP4=true in training.env only for 16GB / no MXFP4."
+                "Text cache on CPU (disable_mxfp4=true). Slow but safe on 16–20GB GPUs."
             )
         else:
             encode_device = device
-            if cpu_offload:
+            # 20GB cards cannot hold DiT + full TE; always layer-offload TE and keep DiT on CPU.
+            use_te_layer_offload = cpu_offload or vram_gb < 22.0
+            if use_te_layer_offload:
                 te_hook = _attach_text_encoder_offload(pipe.text_encoder, device)
-            log_info(f"Text cache on GPU ({encode_device}) with MXFP4.")
+            if vram_gb < 22.0:
+                log_warn(
+                    f"GPU has ~{vram_gb:.0f}GB VRAM — using layer-wise TE offload for text cache. "
+                    "If OOM persists, set DISABLE_MXFP4=true for CPU text cache."
+                )
+            log_info(
+                f"Text cache on GPU ({encode_device}) with MXFP4"
+                + (" (layer offload)" if te_hook is not None else "")
+            )
 
         try:
             for index in tqdm_bar(
                 "cache_text", range(len(dataset)), desc="Precomputing text"
             ):
                 if dataset.load_text_cache(index) is None:
-                    try:
-                        caption = dataset.get_caption(index)
-                        features, mask = encode_prompt_features(
-                            pipe,
-                            [caption],
-                            device=encode_device,
-                            max_sequence_length=dataset.cfg.max_sequence_length,
-                        )
-                        dataset.save_text_cache(index, features, mask[0:1].bool())
-                    except (OSError, RuntimeError, ValueError) as exc:
-                        name = dataset.items[index].image_path.name
-                        log_warn(f"Skipping text cache for {name}: {exc}")
+                    caption = dataset.get_caption(index)
+                    name = dataset.items[index].image_path.name
+                    encoded = False
+                    for attempt_device in (encode_device, torch.device("cpu")):
+                        if encoded:
+                            break
+                        if attempt_device.type == "cpu" and encode_device.type != "cpu":
+                            _park_pipeline_for_text_cache(pipe)
+                            log_warn(f"{name}: GPU OOM — retrying text cache on CPU")
+                        try:
+                            features, mask = encode_prompt_features(
+                                pipe,
+                                [caption],
+                                device=attempt_device,
+                                max_sequence_length=dataset.cfg.max_sequence_length,
+                            )
+                            dataset.save_text_cache(index, features, mask[0:1].bool())
+                            encoded = True
+                        except (OSError, RuntimeError, ValueError) as exc:
+                            if attempt_device.type == "cuda" and _is_cuda_oom(exc):
+                                _park_pipeline_for_text_cache(pipe)
+                                continue
+                            log_warn(f"Skipping text cache for {name}: {exc}")
+                            break
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
         finally:
             if te_hook is not None:
                 _detach_text_encoder_offload(pipe.text_encoder, te_hook)
-            _release_gpu_memory(pipe)
+            _park_pipeline_for_text_cache(pipe)
+
+        missing_text = sum(
+            1 for index in range(len(dataset)) if dataset.load_text_cache(index) is None
+        )
+        if missing_text:
+            raise RuntimeError(
+                f"Text cache incomplete ({missing_text}/{len(dataset)} images). "
+                "On ~20GB GPUs set DISABLE_MXFP4=true in training.env and delete "
+                f"text cache files under {dataset.cache_dir}, then re-run."
+            )
 
     _release_gpu_memory(pipe)
 
