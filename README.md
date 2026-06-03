@@ -6,50 +6,77 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 
 ## Quickstart (TL;DR)
 
-**Two scripts. Nothing else.**
+**Primary interface:** `python train.py <preset.yaml>` with **explicit CLI flags**. A **Run parameters:** block is printed before training so you can see exactly what will run.
 
-| # | Script | Does |
-|---|--------|------|
-| 1 | `scripts/bootstrap.sh` | Apt deps, clone repo, venv, Lens package, **HF login**, **download `microsoft/Lens-Base` → `models/Lens-Base`**, smoke test, create `training.env` |
-| 2 | `python train.py … --dataset-path …` or `scripts/train_local.sh` | Explicit CLI flags; prints run summary before training |
+**Optional:** `training.env` + wrapper scripts (`train_local.sh` / `train_runpod.sh`) that expand the env file into the same flags and print the full command.
 
-### 1 — Bootstrap (once per GPU machine)
+| Where | Bootstrap | Train |
+|-------|-----------|-------|
+| **Local PC** | Manual [setup](#setup) (venv + `install_microsoft_lens.sh`) | `python train.py …` or `bash scripts/train_local.sh` |
+| **RunPod** | `scripts/bootstrap.sh` once | `bash scripts/train_runpod.sh` |
+
+### Local training (recommended)
 
 ```bash
-export HF_TOKEN=hf_your_token_here   # required — accept https://huggingface.co/microsoft/Lens-Base
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
-```
+cd /path/to/LensTrainer-LoboForge
+source .venv/bin/activate   # or ComfyUI venv with requirements.txt installed
+export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 
-### 2 — Configure + train
-
-**Local — explicit flags (recommended; prints full command before run):**
-```bash
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --dataset-path /home/wrath/Documents/LoboForge/DualCharacterLoras \
-  --output-dir /media/wrath/AI/LensTrainer-LoboForge/output/lens-lora-dual-character \
-  --model-repo /media/wrath/AI/LensTrainer-LoboForge/models/Lens-Base \
-  --steps 8000 --disable-mxfp4 --no-baseline-control --resume latest
+  --dataset-path /path/to/your/images \
+  --output-dir /path/to/output/lens-lora-dual-character \
+  --job-name lens-lora-dual-character \
+  --model-repo /path/to/models/Lens-Base \
+  --steps 8000 \
+  --save-every 250 \
+  --sample-every 400 \
+  --resolution 0 \
+  --disable-mxfp4 \
+  --no-baseline-control
 ```
 
-Or `cp training.env.local.example training.env` then `bash scripts/train_local.sh` (expands env → same flags on one visible `python train.py` line).
+**Resume** (continues from highest `checkpoints/lora_step_*.safetensors`):
 
-**RunPod:** `cp training.env.runpod.example training.env` then `bash scripts/train_runpod.sh`
+```bash
+  --resume latest
+```
 
-Precedence: YAML preset &lt; `--env-file` &lt; `--set` &lt; explicit CLI flags.
+(`--resume` automatically sets `--no-baseline-control`.)
 
-| `training.env` variable | You set |
-|-------------------------|---------|
-| `DATASET_PATH` | Folder of images + `.txt` captions |
-| `LORA_NAME` | Name for this run |
-| `OUTPUT_DIR` | Where `lora_final.safetensors` is saved |
-| `STEPS` | e.g. `8000` |
-| `TRIGGER_WORD` | Sample prompt token (or empty) |
-| `TRAIN_PRESET` | e.g. `configs/train_lora_dual_character_24gb.yaml` |
-| `MODEL_REPO` | Filled by bootstrap (`.../models/Lens-Base`) |
+**Wrapper (optional):** `cp training.env.local.example training.env`, edit paths, then `bash scripts/train_local.sh` — prints the same `python train.py …` line before executing.
 
-Resume: `RESUME_FROM=latest` and `BASELINE_CONTROL=false` in `training.env`.
+### RunPod (separate config — do not copy to your PC)
 
-Done when you have `OUTPUT_DIR/lora_final.safetensors`.
+```bash
+export HF_TOKEN=hf_...
+export HF_HOME=/workspace/.cache/huggingface
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
+cp training.env.runpod.example training.env
+bash scripts/train_runpod.sh
+```
+
+### Flag precedence
+
+YAML preset → `--env-file` (only if passed) → `--set key=value` → **explicit CLI flags** (win).
+
+Run `python train.py --help` for all flags.
+
+| CLI flag | Purpose |
+|----------|---------|
+| `--dataset-path` | Images + `.txt` captions |
+| `--output-dir` | Checkpoints, `lora_final.safetensors`, `cache/`, `samples/` |
+| `--job-name` | Run name |
+| `--model-repo` | Local `models/Lens-Base` or `microsoft/Lens-Base` |
+| `--steps` | Training steps (e.g. `8000`) |
+| `--save-every` | Checkpoint interval |
+| `--sample-every` | Preview image interval |
+| `--resolution` | `0` = auto native size; `1024` = square |
+| `--disable-mxfp4` / `--no-disable-mxfp4` | `true` = CPU text cache (16GB). `false` = GPU MXFP4 (20GB+, needs `kernels`) |
+| `--baseline-control` / `--no-baseline-control` | Step-0 control grid |
+| `--resume latest` | Load LoRA + continue step counter |
+| `--trigger-word` | Token for `[trigger]` in sample prompts |
+
+Done when you have `output-dir/lora_final.safetensors`.
 
 ## Requirements
 
@@ -83,21 +110,16 @@ Peak VRAM by phase (16GB preset):
 | Text precompute (default) | nothing (CPU) | ~0GB |
 | Mid-run samples | DiT + VAE swap | ~14–16GB |
 
-## RunPod (GPU pod — same class as ComfyUI)
+## RunPod (GPU pod)
 
-**PyTorch GPU template**, volume on `/workspace`, **20GB+ VRAM** (4090 / L40 / etc.).
+**Separate from local** — use `training.env.runpod.example` and `scripts/train_runpod.sh` only on the pod. Do not copy `/workspace/...` paths to your workstation.
 
-```bash
-export HF_TOKEN=hf_...
-export HF_HOME=/workspace/.cache/huggingface
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
-# edit DATASET_PATH if needed, then:
-bash /workspace/LoboForge-LensTrainer/scripts/train.sh
-```
+- **Template:** RunPod PyTorch, volume on `/workspace`, **20GB+ VRAM**
+- **Bootstrap:** `scripts/bootstrap.sh` (venv, Lens, HF login, `models/Lens-Base`, `kernels` package)
+- **Preset:** `configs/train_runpod_gpu.yaml`
+- **Preflight:** `scripts/verify_gpu_ready.sh` (fails fast if CUDA or `kernels` missing)
 
-Bootstrap installs **`kernels`** for MXFP4 on GPU. `train.sh` runs **`verify_gpu_ready.sh`** first and exits immediately if CUDA or kernels are missing (no more silent bf16 OOM).
-
-Default on `/workspace`: preset `configs/train_runpod_gpu.yaml`, `DISABLE_MXFP4=false`, `BASELINE_CONTROL=false` (skips step-0 control grid; previews still run every `sample_every` steps).
+See [Quickstart — RunPod](#runpod-separate-config--do-not-copy-to-your-pc).
 
 ## Setup
 
@@ -183,7 +205,7 @@ On **16GB GPUs**, sampling encodes prompts on **CPU** and swaps **DiT + VAE** on
 **Skip step-0 control** when you already have control PNGs (re-run or resume):
 
 ```bash
---set sample.baseline_control=false
+--no-baseline-control
 ```
 
 ## Example run
@@ -201,46 +223,53 @@ Preset: `configs/train_lora_dual_character_24gb.yaml` — **8000** steps, **48**
 - **16GB+ VRAM** with the 24GB preset (`cpu_offload`, caches, `batch_size: 1`)
 - Local Lens weights optional: `--set model.repo_id=./models/Lens-Base`
 
-**First run** (builds `cache/`, step-0 control grid, trains 8000 steps):
+**First run** (builds `cache/`, optional step-0 control, trains 8000 steps):
 
 ```bash
-cd /media/wrath/AI/LensTrainer-LoboForge
-source .venv/bin/activate   # or your ComfyUI venv with requirements installed
-export PYTHONPATH="/media/wrath/AI/LensTrainer-LoboForge/vendor/Lens:${PYTHONPATH}"
+cd /path/to/LensTrainer-LoboForge
+source .venv/bin/activate
+export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base
+  --dataset-path /path/to/DualCharacterLoras \
+  --output-dir ./output/lens-lora-dual-character \
+  --model-repo ./models/Lens-Base \
+  --steps 8000 --disable-mxfp4 --no-baseline-control
 ```
 
 **Re-run** (reuse caches, skip step-0 control):
 
 ```bash
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set sample.baseline_control=false
+  --dataset-path /path/to/DualCharacterLoras \
+  --output-dir ./output/lens-lora-dual-character \
+  --model-repo ./models/Lens-Base \
+  --steps 8000 --disable-mxfp4 --no-baseline-control
 ```
 
-**Resume** after a checkpoint:
+**Resume** after a checkpoint (e.g. left off at step 250 — saves every 250):
 
 ```bash
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set train.resume_from=latest \
-  --set sample.baseline_control=false
+  --dataset-path /path/to/DualCharacterLoras \
+  --output-dir ./output/lens-lora-dual-character \
+  --model-repo ./models/Lens-Base \
+  --steps 8000 --disable-mxfp4 --resume latest
 ```
 
-**Useful overrides** (same command, add `--set` flags):
+Confirm the startup block shows `resume_from: latest` (not empty) and you see `[resume] Resumed from … at step N`.
 
-| Goal | Example |
-|------|---------|
-| Different dataset folder | `--set dataset.folder_path=/path/to/images` |
-| Different output dir | `--set job.output_dir=./output/my-run` |
-| Fewer/more steps | `--set train.steps=6000` |
-| Save checkpoints more often | `--set train.save_every=200` |
-| Preview cadence | `--set train.sample_every=300` |
-| Force square 1024 (instead of auto) | `--set dataset.resolution=1024` |
-| Cap huge images in auto mode | `--set dataset.max_training_edge=1536` |
-| Faster text cache on RTX 50xx | `--set model.disable_mxfp4=false` |
+**Common CLI flags:**
+
+| Goal | Flag |
+|------|------|
+| Different dataset | `--dataset-path /path/to/images` |
+| Different output | `--output-dir ./output/my-run` |
+| Fewer/more steps | `--steps 6000` |
+| Save more often | `--save-every 200` |
+| Preview cadence | `--sample-every 300` |
+| Force square 1024 | `--resolution 1024` |
+| GPU text cache (20GB+) | `--no-disable-mxfp4` (requires `pip install 'kernels>=0.12.0,<0.15'`) |
 
 Outputs: `./output/lens-lora-dual-character/lora_final.safetensors`, `checkpoints/`, `samples/`, `cache/`, `loss.json`.
 
@@ -254,26 +283,31 @@ Preset: `configs/train_lora_willow_24gb.yaml` — 2000 steps, samples every 100,
 
 ```bash
 python train.py configs/train_lora_willow_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set dataset.folder_path=/path/to/willow/images \
-  --set job.output_dir=./output/lens-lora-willow
+  --dataset-path /path/to/willow/images \
+  --output-dir ./output/lens-lora-willow \
+  --model-repo ./models/Lens-Base \
+  --steps 2000 --disable-mxfp4
 ```
 
 **Re-run without re-rendering control** (caches hit, skip step-0):
 
 ```bash
 python train.py configs/train_lora_willow_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set job.output_dir=./output/lens-lora-willow \
-  --set sample.baseline_control=false
+  --dataset-path /path/to/willow/images \
+  --output-dir ./output/lens-lora-willow \
+  --model-repo ./models/Lens-Base \
+  --steps 2000 --disable-mxfp4 --no-baseline-control
 ```
 
 ### Generic subject/style LoRA
 
 ```bash
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/path/to/your/dataset \
-  --set sample.trigger_word=mytrigger
+  --dataset-path /path/to/your/dataset \
+  --output-dir ./output/my-lora \
+  --model-repo ./models/Lens-Base \
+  --trigger-word mytrigger \
+  --disable-mxfp4
 ```
 
 Outputs land in `job.output_dir`:
@@ -310,16 +344,20 @@ Caches live under **`job.output_dir/cache/`**. If you start another run with the
 ```bash
 # First run: pays precompute + training
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/path/to/dataset \
-  --set job.output_dir=./output/lens-lora-ballet \
-  --set sample.trigger_word=ballet
+  --dataset-path /path/to/dataset \
+  --output-dir ./output/lens-lora-ballet \
+  --model-repo ./models/Lens-Base \
+  --trigger-word ballet \
+  --disable-mxfp4
 
-# Same output_dir — reuses cache/ (still starts training from step 0 unless resume_from is set)
+# Same --output-dir — reuses cache/ (step 0 unless --resume latest)
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/path/to/dataset \
-  --set job.output_dir=./output/lens-lora-ballet \
-  --set train.steps=3000 \
-  --set sample.baseline_control=false
+  --dataset-path /path/to/dataset \
+  --output-dir ./output/lens-lora-ballet \
+  --model-repo ./models/Lens-Base \
+  --steps 3000 \
+  --disable-mxfp4 \
+  --no-baseline-control
 ```
 
 Keep the same `job.output_dir` when you want to avoid re-encoding. Copy or symlink the whole output folder to train a new run from existing caches.
@@ -339,25 +377,28 @@ To force a full refresh:
 rm -rf ./output/lens-lora-ballet/cache
 ```
 
-### Faster text precompute with MXFP4 (optional)
+### Faster text precompute with MXFP4 (20GB+ GPUs)
 
-Presets default to `disable_mxfp4: false` (MXFP4 text encoder on **GPU** for text precompute). On **16GB VRAM** only, set `disable_mxfp4: true` for CPU text precompute (~8–15 min per image). Example GPU path:
+On **16GB VRAM**, presets use **`--disable-mxfp4`** (CPU text cache, slow once, reliable).
+
+On **20GB+** with the `kernels` package installed:
 
 ```bash
 pip install 'kernels>=0.12.0,<0.15' 'triton>=3.4.0'
 
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set dataset.folder_path=/path/to/dataset \
-  --set job.output_dir=./output/my-run \
-  --set model.disable_mxfp4=false
+  --dataset-path /path/to/dataset \
+  --output-dir ./output/my-run \
+  --model-repo ./models/Lens-Base \
+  --no-disable-mxfp4
 ```
 
-| `disable_mxfp4` | Text encoder size | Text precompute (typical) |
-|-----------------|-------------------|---------------------------|
-| `true` (default) | ~40GB bf16 in RAM | CPU, slower |
-| `false` | ~6GB MXFP4 | GPU layer offload, faster |
+| Flag | Text encoder | Text precompute (typical) |
+|------|----------------|---------------------------|
+| `--disable-mxfp4` | ~40GB bf16 in RAM | CPU (~8–15 min / image on 16GB rigs) |
+| `--no-disable-mxfp4` | ~6GB MXFP4 | GPU, faster (needs `kernels`) |
 
-Use `disable_mxfp4: true` on Ampere/Ada (RTX 30xx/40xx, A100) where MXFP4 kernels are unavailable. Training behavior is the same either way once caches exist — only the one-time encode path changes.
+Training behavior is the same once caches exist — only the one-time encode path changes.
 
 If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or the whole `cache/` folder) so captions are re-encoded with the new TE mode.
 
@@ -370,7 +411,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | **job** | `name`, `output_dir` | Run name and output directory |
 | **model** | `repo_id` | Hugging Face id (`microsoft/Lens-Base`) **or** path to a local HF-layout folder (see below) |
 | | `dtype` | `bfloat16`, `float16`, or `float32` |
-| | `disable_mxfp4` | **Default `false`:** MXFP4 TE on GPU for text cache. **`true`:** bf16 TE on CPU (16GB / no MXFP4 only) |
+| | `disable_mxfp4` | **`true` (16GB default):** bf16 TE on CPU. **`false`:** MXFP4 on GPU (`--no-disable-mxfp4`, needs `kernels`) |
 | | `cpu_offload` | Diffusers CPU offload (`text_encoder→transformer→vae`) |
 | | `cache_text_embeddings` | Precompute GPT-OSS multi-layer features to disk |
 | **dataset** | `folder_path`, `caption_ext` | Data root; one caption file per image (`image.jpg` + `image.txt`) |
@@ -395,36 +436,50 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | File | Target | Notes |
 |------|--------|-------|
 | `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Generic subject/style; 2000 steps template |
-| `configs/train_lora_dual_character_24gb.yaml` | ~16–24GB | DualCharacterLoras — 8000 steps, auto resolution, caption-based sample prompts |
-| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | LoboForge mascot Willow (long run / custom paths) |
+| `configs/train_lora_dual_character_24gb.yaml` | ~16GB+ | Dual-character — 8000 steps, auto resolution (`--resolution 0`) |
+| `configs/train_lora_willow_24gb.yaml` | ~16–24GB | LoboForge mascot Willow |
+| `configs/train_runpod_gpu.yaml` | RunPod 20GB+ | Cloud preset (`/workspace` paths in YAML) |
 | `configs/train_lora_lens_base_48gb.yaml` | 48GB+ | No offload, batch 2, rank 32 |
+
+### Config files (local vs RunPod)
+
+| File | Use on |
+|------|--------|
+| `training.env.local.example` | Your PC → copy to `training.env` → `bash scripts/train_local.sh` |
+| `training.env.runpod.example` | RunPod only → copy to `training.env` → `bash scripts/train_runpod.sh` |
+
+`training.env` is gitignored. It is **not** loaded unless you use `train.sh` wrappers or pass `--env-file training.env`.
 
 ### Minimal train command template
 
 ```bash
 cd /path/to/LensTrainer-LoboForge
 source .venv/bin/activate
-export PYTHONPATH="/path/to/LensTrainer-LoboForge/vendor/Lens:${PYTHONPATH}"
+export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 
 python train.py configs/train_lora_lens_base_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set dataset.folder_path=/path/to/your/dataset \
-  --set dataset.resolution=0 \
-  --set job.output_dir=./output/my-lora \
-  --set train.steps=8000 \
-  --set train.save_every=250 \
-  --set train.sample_every=400 \
-  --set sample.trigger_word=your_token \
-  --set sample.height=0 \
-  --set sample.width=0
+  --dataset-path /path/to/your/dataset \
+  --output-dir ./output/my-lora \
+  --model-repo ./models/Lens-Base \
+  --steps 8000 \
+  --save-every 250 \
+  --sample-every 400 \
+  --resolution 0 \
+  --trigger-word your_token \
+  --disable-mxfp4
 ```
 
-Put `your_token` in every caption and in `sample.prompts` as `[trigger]` if you use a single activation word. For descriptive captions only, leave `trigger_word` empty and write full prompts (see dual-character preset).
+Put `your_token` in every caption and in `sample.prompts` as `[trigger]` if you use a single activation word. For descriptive captions only, omit `--trigger-word` (see dual-character preset).
 
-Override any field at runtime:
+Extra YAML tweaks still work:
 
 ```bash
-python train.py configs/train_lora_lens_base_24gb.yaml --set train.steps=500 --set lora.rank=8
+python train.py configs/train_lora_lens_base_24gb.yaml \
+  --dataset-path /path/to/dataset \
+  --output-dir ./output/my-lora \
+  --model-repo ./models/Lens-Base \
+  --steps 500 \
+  --set lora.rank=8
 ```
 
 ## Resume from checkpoint
@@ -439,31 +494,26 @@ python train.py configs/train_lora_lens_base_24gb.yaml --set train.steps=500 --s
 | Training **interrupted** (power loss, crash) after a checkpoint was saved | `train.resume_from=latest` (or explicit path), same `output_dir` + LoRA config |
 | **Extend** a finished run past the original `train.steps` | Raise `train.steps`, `train.resume_from=latest` |
 
-### Config / CLI
-
-```yaml
-train:
-  resume_from: latest   # or ./output/.../checkpoints/lora_step_000250.safetensors
-```
+### CLI
 
 ```bash
---set train.resume_from=latest
---set train.resume_from=./output/lens-lora-willow/checkpoints/lora_step_000250.safetensors
+--resume latest
+# or
+--resume ./output/lens-lora-willow/checkpoints/lora_step_000250.safetensors
 ```
 
-`latest` / `auto` picks the highest step among:
-
-- `checkpoints/lora_step_*.safetensors`
-- `lora_final.safetensors` (uses `step` from file metadata)
+`latest` picks the highest **`checkpoints/lora_step_*.safetensors`** (preferred over a stale `lora_latest` from a restarted run). Falls back to `lora_emergency` / `lora_final` if no numbered checkpoints exist.
 
 ### Full resume example
 
 ```bash
 python train.py configs/train_lora_willow_24gb.yaml \
-  --set model.repo_id=./models/Lens-Base \
-  --set job.output_dir=./output/lens-lora-willow \
-  --set train.steps=2000 \
-  --set train.resume_from=latest
+  --dataset-path /path/to/willow/images \
+  --output-dir ./output/lens-lora-willow \
+  --model-repo ./models/Lens-Base \
+  --steps 2000 \
+  --disable-mxfp4 \
+  --resume latest
 ```
 
 Training continues at **checkpoint step + 1** until `train.steps`. Samples and saves follow the normal schedule from there (e.g. next sample at 300 if you resume from 250 with `sample_every: 100`).
@@ -473,7 +523,8 @@ Training continues at **checkpoint step + 1** until `train.steps`. Samples and s
 - Use the **same** `lora.rank`, `lora.alpha`, and `lora.target_modules` as the original run (warnings are printed on mismatch).
 - Checkpoints are **ComfyUI-compatible** `safetensors` — the same files you load in ComfyUI are what training resumes from.
 - **Not saved in v1:** optimizer state, RNG state, exact dataloader order.
-- `resume_from: latest` / `auto` with **no** checkpoint on disk prints a warning and **starts from step 0** (no crash). Use an explicit path only when you know the file exists.
+- `--resume latest` with **no** checkpoint on disk prints a warning and **starts from step 0** (no crash). Use an explicit path only when you know the file exists.
+- Checkpoints save every `save_every` steps (default 250) — stopping at step 300 resumes from **250**, not 300.
 - On **Ctrl+C**, training saves `lora_emergency.safetensors` (and `loss.json` is flushed every 25 steps). `latest` also picks `lora_latest.safetensors` (updated on each scheduled save).
 
 ### What gets skipped on resume
