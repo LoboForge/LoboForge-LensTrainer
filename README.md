@@ -13,7 +13,7 @@ git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
 cd LoboForge-LensTrainer
 ./scripts/quickstart.sh
 source .venv/bin/activate
-huggingface-cli login   # once — accept microsoft/Lens-Base on the Hub first
+hf auth login   # once — accept microsoft/Lens-Base on the Hub first (or: export HF_TOKEN=...)
 
 python train.py configs/train_lora_lens_base_24gb.yaml \
   --set dataset.folder_path=/path/to/your/dataset \
@@ -26,7 +26,7 @@ python train.py configs/train_lora_lens_base_24gb.yaml \
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/quickstart.sh | bash
 cd ~/LoboForge-LensTrainer && source .venv/bin/activate
-# then huggingface-cli login and the python train.py command above
+# then hf auth login and the python train.py command above
 ```
 
 **Auto-train after install** (optional):
@@ -141,7 +141,7 @@ export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 Authenticate with Hugging Face (required for gated checkpoints):
 
 ```bash
-huggingface-cli login
+hf auth login
 ```
 
 Accept the model license on the Hub for `microsoft/Lens-Base` before first run.
@@ -616,7 +616,7 @@ python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
 
 1. Create/login at https://huggingface.co
 2. Request access to `microsoft/Lens-Base` on the model page
-3. Run `huggingface-cli login` on the training machine
+3. Run `hf auth login` on the training machine
 4. **GPU choice:** `disable_mxfp4: true` on Ampere/Ada (RTX 30xx/40xx, A100). On Blackwell (RTX 50xx), use `--set model.disable_mxfp4=false` for faster text precompute (see **Caching**).
 
 ## Troubleshooting

@@ -8,7 +8,7 @@
 #
 # Optional env:
 #   LOBFORGE_TRAINER_DIR   install path (default: /workspace/LoboForge-LensTrainer)
-#   HF_TOKEN               if set, runs `huggingface-cli login --token`
+#   HF_TOKEN               if set, runs `hf auth login` (or legacy huggingface-cli)
 #   SKIP_APT=1             skip apt installs (air-gapped / pre-baked image)
 #   SKIP_SMOKE_TEST=1      skip import/GPU smoke test after pip
 set -euo pipefail
@@ -128,17 +128,23 @@ ensure_env_helper() {
 hf_login_if_token() {
   # shellcheck disable=SC1091
   source .venv/bin/activate
+  # shellcheck disable=SC1091
+  source "${INSTALL_DIR}/scripts/hf_auth.sh"
+
   if [[ -n "${HF_TOKEN:-}" ]]; then
-    log "HF_TOKEN set — logging into Hugging Face"
-    huggingface-cli login --token "${HF_TOKEN}" --add-to-git-credential || die "huggingface-cli login failed"
+    log "HF_TOKEN set — logging into Hugging Face (hf auth login)"
+    if ! hf_hub_login "${HF_TOKEN}"; then
+      warn "hf auth login failed — exporting HUGGINGFACE_HUB_TOKEN for library downloads"
+      hf_apply_token_env
+    fi
     return 0
   fi
-  if huggingface-cli whoami >/dev/null 2>&1; then
-    log "Hugging Face: already logged in as $(huggingface-cli whoami 2>/dev/null | head -1)"
+  if hf_hub_logged_in; then
+    log "Hugging Face: already logged in as $(hf_hub_whoami)"
     return 0
   fi
   warn "Not logged into Hugging Face yet."
-  warn "  export HF_TOKEN=hf_...   # or: huggingface-cli login"
+  warn "  export HF_TOKEN=hf_...   # or: hf auth login"
   warn "  Accept https://huggingface.co/microsoft/Lens-Base before training."
 }
 
@@ -181,7 +187,7 @@ LensTrainer-LoboForge is ready on this pod.
 
   cd ${INSTALL_DIR}
   source scripts/runpod_env.sh
-  huggingface-cli login          # if not already (gated Lens-Base)
+  hf auth login                  # if not already (gated Lens-Base)
   # Upload dataset (SCP example — use your pod's Direct TCP SSH port):
   #   scp -P <PORT> -i ~/.ssh/id_ed25519 -r ./DualCharacterLoras root@<IP>:/workspace/
 

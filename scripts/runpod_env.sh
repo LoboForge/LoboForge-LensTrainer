@@ -16,6 +16,12 @@ source "${SCRIPT_DIR}/.venv/bin/activate"
 export USE_HUB_KERNELS=NO
 export PYTHONPATH="${SCRIPT_DIR}/vendor/Lens:${PYTHONPATH:-}"
 
+if [[ -f "${SCRIPT_DIR}/scripts/hf_auth.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "${SCRIPT_DIR}/scripts/hf_auth.sh"
+  hf_apply_token_env
+fi
+
 if [[ ! -d "${SCRIPT_DIR}/vendor/Lens/lens" ]]; then
   echo "[error] Missing ${SCRIPT_DIR}/vendor/Lens — run: bash scripts/setup_runpod.sh" >&2
   return 1 2>/dev/null || exit 1
