@@ -12,6 +12,9 @@ from safetensors import safe_open
 
 TRANSFORMER_MARKERS = ("img_in.weight", "proj_out.weight", "transformer_blocks.0.")
 VAE_MARKERS = ("bn.running_mean", "encoder.conv_in.weight", "decoder.conv_out.weight")
+LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+# Real Lens-Base shards are hundreds of MB; tiny files are git-lfs pointers or HTML stubs.
+MIN_WEIGHT_BYTES = 1_000_000
 
 
 def _keys(path: Path) -> set[str]:
@@ -56,20 +59,97 @@ def _link_or_copy(src: Path, dest: Path, use_symlink: bool) -> None:
         shutil.copy2(src, dest)
 
 
-def _component_weights_present(component_dir: Path, index_name: str, single_name: str) -> bool:
-    single = component_dir / single_name
-    if single.is_file() and single.stat().st_size > 0:
+def is_git_lfs_pointer(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if path.stat().st_size > 4096:
+        return False
+    with path.open("rb") as handle:
+        return handle.read(len(LFS_POINTER_PREFIX)) == LFS_POINTER_PREFIX
+
+
+def is_loadable_safetensors_shard(path: Path) -> bool:
+    """True when path is a real safetensors weight file (not LFS pointer / HTML stub)."""
+    if not path.is_file():
+        return False
+    if path.stat().st_size < MIN_WEIGHT_BYTES:
+        return False
+    if is_git_lfs_pointer(path):
+        return False
+    try:
+        with safe_open(str(path), framework="pt") as handle:
+            next(iter(handle.keys()), None)
         return True
+    except Exception:
+        return False
+
+
+def _shard_paths(component_dir: Path, index_name: str, single_name: str) -> list[Path]:
+    single = component_dir / single_name
+    if single.is_file():
+        return [single]
     index_path = component_dir / index_name
     if not index_path.is_file():
-        return False
-    with index_path.open("r", encoding="utf-8") as f:
-        index_data = json.load(f)
+        return []
+    with index_path.open("r", encoding="utf-8") as handle:
+        index_data = json.load(handle)
     weight_map = index_data.get("weight_map") or {}
     if not weight_map:
-        return False
-    shard_names = sorted(set(weight_map.values()))
-    return all((component_dir / name).is_file() and (component_dir / name).stat().st_size > 0 for name in shard_names)
+        return []
+    return [component_dir / name for name in sorted(set(weight_map.values()))]
+
+
+def diagnose_hf_repo(path: Path) -> list[str]:
+    """Return human-readable problems with a Lens HF folder (empty if loadable)."""
+    path = path.expanduser()
+    problems: list[str] = []
+
+    if not (path / "model_index.json").is_file():
+        problems.append(f"missing {path / 'model_index.json'}")
+        return problems
+
+    for label, component, index_name, single_name in (
+        ("text_encoder", path / "text_encoder", "model.safetensors.index.json", "model.safetensors"),
+        (
+            "transformer",
+            path / "transformer",
+            "diffusion_pytorch_model.safetensors.index.json",
+            "diffusion_pytorch_model.safetensors",
+        ),
+    ):
+        shards = _shard_paths(component, index_name, single_name)
+        if not shards:
+            problems.append(f"{label}: no weight shards under {component}")
+            continue
+        for shard in shards:
+            if not shard.is_file():
+                problems.append(f"{label}: missing {shard.name}")
+            elif is_git_lfs_pointer(shard):
+                problems.append(
+                    f"{label}: {shard.name} is a git-lfs pointer ({shard.stat().st_size} bytes) — "
+                    "re-download with huggingface_hub, not git clone without git-lfs"
+                )
+            elif shard.stat().st_size < MIN_WEIGHT_BYTES:
+                problems.append(
+                    f"{label}: {shard.name} too small ({shard.stat().st_size} bytes) — truncated or wrong file"
+                )
+            elif not is_loadable_safetensors_shard(shard):
+                problems.append(f"{label}: {shard.name} is not a valid safetensors checkpoint")
+
+    vae = path / "vae" / "diffusion_pytorch_model.safetensors"
+    if not vae.is_file():
+        problems.append(f"vae: missing {vae}")
+    elif is_git_lfs_pointer(vae):
+        problems.append(f"vae: git-lfs pointer ({vae.stat().st_size} bytes)")
+    elif not is_loadable_safetensors_shard(vae):
+        problems.append(f"vae: invalid or truncated {vae.name}")
+
+    return problems
+
+
+def _component_weights_present(component_dir: Path, index_name: str, single_name: str) -> bool:
+    shards = _shard_paths(component_dir, index_name, single_name)
+    return bool(shards) and all(is_loadable_safetensors_shard(shard) for shard in shards)
 
 
 def is_complete_hf_repo(path: Path) -> bool:
@@ -86,7 +166,7 @@ def is_complete_hf_repo(path: Path) -> bool:
     ):
         return False
     vae = path / "vae" / "diffusion_pytorch_model.safetensors"
-    return vae.is_file() and vae.stat().st_size > 0
+    return is_loadable_safetensors_shard(vae)
 
 
 def resolve_model_repo(repo_id: str) -> str:

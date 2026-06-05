@@ -15,10 +15,12 @@ _hf_repo_root() {
 _hf_venv_bin() {
   local root
   root="$(_hf_repo_root)"
-  if [[ -d "${root}/.venv/bin" ]]; then
-    printf '%s/bin' "${root}/.venv"
-    return 0
-  fi
+  for name in .venv venv; do
+    if [[ -d "${root}/${name}/bin" ]]; then
+      printf '%s/%s/bin' "${root}" "${name}"
+      return 0
+    fi
+  done
   if [[ -n "${VIRTUAL_ENV:-}" && -d "${VIRTUAL_ENV}/bin" ]]; then
     printf '%s/bin' "${VIRTUAL_ENV}"
     return 0

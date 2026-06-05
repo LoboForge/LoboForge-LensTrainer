@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from lens_trainer.hf_repo import assemble_lens_repo, is_complete_hf_repo
+from lens_trainer.hf_repo import assemble_lens_repo, diagnose_hf_repo, is_complete_hf_repo
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,9 +93,15 @@ def main() -> None:
         vae = sources.get("vae") or vae
 
     if args.check:
-        ok = is_complete_hf_repo(output)
-        print(f"{output}: {'complete' if ok else 'incomplete'}")
-        raise SystemExit(0 if ok else 1)
+        problems = diagnose_hf_repo(output)
+        ok = not problems and is_complete_hf_repo(output)
+        if ok:
+            print(f"{output}: complete")
+            raise SystemExit(0)
+        print(f"{output}: incomplete")
+        for line in problems:
+            print(f"  - {line}")
+        raise SystemExit(1)
 
     transformer_path = Path(transformer).expanduser() if transformer else None
     vae_path = Path(vae).expanduser() if vae else None

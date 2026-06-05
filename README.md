@@ -14,8 +14,8 @@ Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/micr
 
 | Where | Bootstrap | Train |
 |-------|-----------|-------|
-| **Local PC** | Manual [setup](#setup) (venv + `install_microsoft_lens.sh`) | `python train.py …` or `bash scripts/train_local.sh` |
-| **RunPod** | `scripts/bootstrap.sh` once | `bash scripts/train_runpod.sh` |
+| **Local PC** | `bash scripts/quickstart.sh` once ([details](#setup)) | `python train.py …` or `bash scripts/train_local.sh` |
+| **RunPod** | `bash scripts/quickstart.sh` once | `bash scripts/train_runpod.sh` |
 
 ### Local training (recommended)
 
@@ -52,7 +52,7 @@ python train.py configs/train_lora_dual_character_24gb.yaml \
 ```bash
 export HF_TOKEN=hf_...
 export HF_HOME=/workspace/.cache/huggingface
-curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LoboForge/LoboForge-LensTrainer/main/scripts/quickstart.sh | bash
 cp training.env.runpod.example training.env
 bash scripts/train_runpod.sh
 ```
@@ -125,34 +125,47 @@ See [Quickstart — RunPod](#runpod-separate-config--do-not-copy-to-your-pc).
 
 ## Setup
 
-Manual install (if you skip `scripts/bootstrap.sh`):
+**One command** (from repo root — installs `vendor/Lens`, venv, and downloads `models/Lens-Base` via Hugging Face Hub, not git-lfs):
 
 ```bash
 git clone https://github.com/LoboForge/LoboForge-LensTrainer.git
 cd LoboForge-LensTrainer
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -U pip
-pip install -r requirements.txt
-bash scripts/install_microsoft_lens.sh   # or: source it and run install_microsoft_lens "$PWD"
-export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
+
+# 1) Accept license: https://huggingface.co/microsoft/Lens-Base
+# 2) Auth (pick one):
+export HF_TOKEN=hf_...
+# or: hf auth login
+
+bash scripts/quickstart.sh
 ```
 
-Clone/update Lens automatically:
+Re-run `bash scripts/quickstart.sh` anytime — it is safe and will **repair** a broken `models/Lens-Base` (e.g. git-lfs pointer files that cause `HeaderTooLarge`).
+
+Verify weights:
 
 ```bash
-source scripts/install_microsoft_lens.sh
-install_microsoft_lens "$(pwd)"
-export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
+python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
 ```
 
-Authenticate with Hugging Face (required for gated checkpoints):
+Force a full model re-download:
 
 ```bash
+FORCE_MODEL_REDOWNLOAD=1 bash scripts/quickstart.sh
+```
+
+### Manual install (optional)
+
+If you prefer step-by-step instead of `quickstart.sh`:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -U pip && pip install -r requirements.txt
+bash scripts/install_microsoft_lens.sh
 hf auth login
+python scripts/assemble_lens_repo.py --output ./models/Lens-Base --repo-id microsoft/Lens-Base
 ```
 
-Accept the model license on the Hub for `microsoft/Lens-Base` before first run.
+**Do not** `git clone https://huggingface.co/microsoft/Lens-Base` without `git lfs install` — you get tiny pointer files and training fails with `HeaderTooLarge`.
 
 ## Dataset layout
 
@@ -698,6 +711,16 @@ pip uninstall -y kernels kernels-data
 ```
 
 Then re-run `train.py`.
+
+### `HeaderTooLarge` when loading `LensGptOssEncoder`
+
+Your `models/Lens-Base` weight files are **not real safetensors** — usually git-lfs pointer stubs from cloning the Hub repo without LFS.
+
+```bash
+ls -lh ./models/Lens-Base/text_encoder/
+python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
+FORCE_MODEL_REDOWNLOAD=1 bash scripts/quickstart.sh
+```
 
 ### Corrupt or truncated training images
 
