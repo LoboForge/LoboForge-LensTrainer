@@ -2,19 +2,9 @@
 
 Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/microsoft/Lens-Base). Train subject/style LoRAs from a folder of images + captions, export ComfyUI-compatible weights, and preview samples during training.
 
-**Hugging Face:** [spaces/LoboForge/LoboForge-LensTrainer](https://huggingface.co/spaces/LoboForge/LoboForge-LensTrainer) (docs Space) · **GitHub:** [LoboForge/LoboForge-LensTrainer](https://github.com/LoboForge/LoboForge-LensTrainer)
+**GitHub:** [LoboForge/LoboForge-LensTrainer](https://github.com/LoboForge/LoboForge-LensTrainer)
 
 ![LensTrainer training run in the terminal](LoboFogeLensTrainerScreen.png)
-
-## Published LoRAs
-
-Example weights trained with this repo (writeups + samples in git; `.safetensors` on Hugging Face):
-
-| LoRA | Writeup |
-|------|---------|
-| Sebastian + Jessica v2 (dual-character, 5000-step checkpoint) | [HF model](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](docs/loras/sebastian-jessica-v2.md) |
-
-See [docs/loras/README.md](docs/loras/README.md) for writeup templates.
 
 ## Quickstart (TL;DR)
 

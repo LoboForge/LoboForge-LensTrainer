@@ -26,4 +26,5 @@ dataset_cache/
 .huggingface/
 training.env
 .hf-space-publish/
+huggingface/
 sample_lora/
