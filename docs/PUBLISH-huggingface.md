@@ -99,4 +99,4 @@ Include:
 - [ ] Collection created (`bash scripts/create_huggingface_collection.sh`)
 - [ ] GitHub README links to Space
 - [ ] `docs/loras/sebastian-jessica-v2.md` HF URL filled in
-- [ ] Optional: issue on `microsoft/Lens`
+- [x] Issue on `microsoft/Lens`: https://github.com/microsoft/Lens/issues/12

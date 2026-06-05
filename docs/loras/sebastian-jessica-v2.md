@@ -8,14 +8,16 @@ LoRA fine-tune of **microsoft/Lens-Base** for two recurring characters (Sebastia
 
 | File | Local path (not in git) |
 |------|------------------------|
-| Final weights | `output/lens-lora-sebastian-jessica-v2/lora_final.safetensors` |
-| Last checkpoint | `output/lens-lora-sebastian-jessica-v2/checkpoints/lora_step_008000.safetensors` |
+| Published weights | `output/lens-lora-sebastian-jessica-v2/checkpoints/lora_step_005000.safetensors` (on HF as `lora_final.safetensors`) |
+| Full training run | `output/lens-lora-sebastian-jessica-v2/lora_final.safetensors` (8000 steps, local only) |
 
 Re-publish (from repo root, after `hf auth login`):
 
 ```bash
 bash scripts/publish_huggingface_lora.sh
 ```
+
+Default publish uses the **5000-step** checkpoint (`LORA_STEP=5000`).
 
 ## Training summary
 
@@ -25,11 +27,10 @@ bash scripts/publish_huggingface_lora.sh
 | Base | `microsoft/Lens-Base` (local: `./models/Lens-Base`) |
 | Dataset | 24 image/caption pairs, 1024×1024, full-sentence captions |
 | Preset | `configs/train_lora_dual_character_24gb.yaml` |
-| Steps | 8000 |
+| Published step | **5000** |
 | LoRA rank / alpha | 16 / 16 |
 | Optimizer | AdamW 8-bit |
 | VRAM preset | 24GB (CPU offload, TE + latent cache, `disable_mxfp4`) |
-| Final step | 8000 |
 
 Resolved config: `output/lens-lora-sebastian-jessica-v2/config.resolved.json`
 
@@ -55,11 +56,11 @@ ComfyUI: load **Lens-Base** checkpoint + this LoRA (`diffusion_model.*` keys, ex
 
 ## Samples
 
-![Standing, laughing](../loras/assets/sebastian-jessica-v2/step_008000_lora_standing_forward_laughing.png)
+![Standing, laughing](../loras/assets/sebastian-jessica-v2/step_005000_lora_standing_forward_laughing.png)
 
-![Beach, holding hands](../loras/assets/sebastian-jessica-v2/step_008000_lora_beach_holding_hands.png)
+![Beach, holding hands](../loras/assets/sebastian-jessica-v2/step_005000_lora_beach_holding_hands.png)
 
-*Mid-training previews from step 8000 (`samples/step_008000_lora_*.png`).*
+*Previews from the step 5000 training run (`samples/step_004800_lora_*.png` at `sample_every: 400`).*
 
 ## Reproduce
 

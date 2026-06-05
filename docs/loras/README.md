@@ -6,7 +6,7 @@ Weights are **not** stored in this git repo (`.safetensors` are gitignored). Eac
 
 | LoRA | Base model | Steps | Dataset | Writeup |
 |------|------------|-------|---------|---------|
-| Sebastian + Jessica v2 | Lens-Base | 8000 | 24× 1024² dual-character | [HF](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](./sebastian-jessica-v2.md) |
+| Sebastian + Jessica v2 | Lens-Base | 5000 (published) | 24× 1024² dual-character | [HF](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](./sebastian-jessica-v2.md) |
 
 ## Publishing a new LoRA
 

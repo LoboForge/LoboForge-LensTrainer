@@ -57,6 +57,8 @@ bash scripts/open_microsoft_lens_issue.sh
 
 Issue body: [OUTREACH-microsoft-lens-issue-body.md](./OUTREACH-microsoft-lens-issue-body.md)
 
+**Opened:** https://github.com/microsoft/Lens/issues/12
+
 ## What to attach (builds credibility)
 
 - Link to trainer repo + tagged release (`v0.1.0` or similar)

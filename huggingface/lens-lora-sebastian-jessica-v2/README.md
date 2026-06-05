@@ -22,7 +22,7 @@ Trained with **[LoboForge-LensTrainer](https://github.com/LoboForge/LoboForge-Le
 
 | File | Description |
 |------|-------------|
-| `lora_final.safetensors` | Final weights (8000 steps) |
+| `lora_final.safetensors` | Weights from step **5000** checkpoint |
 | `config.resolved.json` | Resolved training config |
 
 ## Training
@@ -30,7 +30,7 @@ Trained with **[LoboForge-LensTrainer](https://github.com/LoboForge/LoboForge-Le
 | Field | Value |
 |-------|-------|
 | Dataset | 24 image/caption pairs, 1024×1024 |
-| Steps | 8000 |
+| Steps | 5000 (published checkpoint) |
 | LoRA rank / alpha | 16 / 16 |
 | Optimizer | AdamW 8-bit |
 | Preset | `train_lora_dual_character_24gb` |
@@ -57,9 +57,9 @@ ComfyUI: load **Lens-Base** + this LoRA (`diffusion_model.*` keys).
 
 ## Samples
 
-![Standing, laughing](samples/step_008000_lora_standing_forward_laughing.png)
+![Standing, laughing](samples/step_005000_lora_standing_forward_laughing.png)
 
-![Beach, holding hands](samples/step_008000_lora_beach_holding_hands.png)
+![Beach, holding hands](samples/step_005000_lora_beach_holding_hands.png)
 
 ## License
 

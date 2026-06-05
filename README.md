@@ -12,7 +12,7 @@ Example weights trained with this repo (writeups + samples in git; `.safetensors
 
 | LoRA | Writeup |
 |------|---------|
-| Sebastian + Jessica v2 (dual-character, 8000 steps) | [HF model](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](docs/loras/sebastian-jessica-v2.md) |
+| Sebastian + Jessica v2 (dual-character, 5000-step checkpoint) | [HF model](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](docs/loras/sebastian-jessica-v2.md) |
 
 See [docs/loras/README.md](docs/loras/README.md) for how to publish your own.
 
