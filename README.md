@@ -71,7 +71,9 @@ Run `python train.py --help` for all flags.
 | `--model-repo` | Local `models/Lens-Base` or `microsoft/Lens-Base` |
 | `--steps` | Training steps (e.g. `8000`) |
 | `--save-every` | Checkpoint interval |
-| `--sample-every` | Preview image interval |
+| `--sample-every` | Preview image interval (disables YAML early cadence unless `--sample-every-early` set) |
+| `--sample-steps` | Denoising steps per preview image (`sample.steps` in YAML, default 50) |
+| `--sample-every-early` | Early-run preview cadence (0 = off) |
 | `--resolution` | `0` = auto native size; `1024` = square |
 | `--disable-mxfp4` / `--no-disable-mxfp4` | `true` = CPU text cache (16GB). `false` = GPU MXFP4 (20GB+, needs `kernels`) |
 | `--baseline-control` / `--no-baseline-control` | Step-0 control grid |

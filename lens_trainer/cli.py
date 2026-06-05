@@ -38,7 +38,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-repo", type=str, help="Lens-Base folder or HF repo id")
     parser.add_argument("--steps", type=int, help="Training steps")
     parser.add_argument("--save-every", type=int, help="Checkpoint interval")
-    parser.add_argument("--sample-every", type=int, help="Preview image interval")
+    parser.add_argument("--sample-every", type=int, help="Preview image interval (train steps)")
+    parser.add_argument(
+        "--sample-steps",
+        type=int,
+        help="Denoising steps per preview image (sample.steps in YAML)",
+    )
+    parser.add_argument(
+        "--sample-every-early",
+        type=int,
+        default=argparse.SUPPRESS,
+        help="Early-run preview cadence until sample_early_until (0 = off)",
+    )
     parser.add_argument("--resolution", type=int, help="0 = auto per-image native size")
     parser.add_argument("--trigger-word", type=str, default=argparse.SUPPRESS, help="Sample prompt token")
     parser.add_argument(
@@ -106,6 +117,13 @@ def cli_to_overrides(args: argparse.Namespace, *, root: Path) -> dict[str, Any]:
         _set_nested(overrides, "train.save_every", args.save_every)
     if getattr(args, "sample_every", None) is not None:
         _set_nested(overrides, "train.sample_every", args.sample_every)
+        # CLI override replaces YAML early cadence unless --sample-every-early is also set.
+        if not hasattr(args, "sample_every_early"):
+            _set_nested(overrides, "train.sample_every_early", 0)
+    if getattr(args, "sample_steps", None) is not None:
+        _set_nested(overrides, "sample.steps", args.sample_steps)
+    if hasattr(args, "sample_every_early"):
+        _set_nested(overrides, "train.sample_every_early", args.sample_every_early)
     if getattr(args, "resolution", None) is not None:
         _set_nested(overrides, "dataset.resolution", args.resolution)
     if hasattr(args, "trigger_word"):
@@ -136,6 +154,8 @@ def format_run_summary(cfg) -> str:
         f"  steps        {cfg.train.steps}",
         f"  save_every   {cfg.train.save_every}",
         f"  sample_every {cfg.train.sample_every}",
+        f"  sample_early {cfg.train.sample_every_early} (until step {cfg.train.sample_early_until})",
+        f"  sample_steps {cfg.sample.steps}",
         f"  resolution   {cfg.dataset.resolution}",
         f"  disable_mxfp4 {cfg.model.disable_mxfp4}",
         f"  resume_from  {cfg.train.resume_from or '(new run)'}",

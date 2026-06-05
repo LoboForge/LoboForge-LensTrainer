@@ -78,6 +78,12 @@ def training_env_to_overrides(
         set_key("train.save_every", _parse_value(env["SAVE_EVERY"]))
     if env.get("SAMPLE_EVERY"):
         set_key("train.sample_every", _parse_value(env["SAMPLE_EVERY"]))
+        if not env.get("SAMPLE_EVERY_EARLY"):
+            set_key("train.sample_every_early", 0)
+    if env.get("SAMPLE_EVERY_EARLY") is not None and env.get("SAMPLE_EVERY_EARLY") != "":
+        set_key("train.sample_every_early", _parse_value(env["SAMPLE_EVERY_EARLY"]))
+    if env.get("SAMPLE_STEPS"):
+        set_key("sample.steps", _parse_value(env["SAMPLE_STEPS"]))
     if env.get("MODEL_REPO"):
         set_key("model.repo_id", _parse_value(env["MODEL_REPO"]))
     if env.get("DISABLE_MXFP4") is not None and env.get("DISABLE_MXFP4") != "":

@@ -30,6 +30,8 @@ TRAIN_PRESET="${TRAIN_PRESET:-configs/train_lora_lens_base_24gb.yaml}"
 STEPS="${STEPS:-8000}"
 SAVE_EVERY="${SAVE_EVERY:-250}"
 SAMPLE_EVERY="${SAMPLE_EVERY:-400}"
+SAMPLE_EVERY_EARLY="${SAMPLE_EVERY_EARLY:-}"
+SAMPLE_STEPS="${SAMPLE_STEPS:-}"
 TRIGGER_WORD="${TRIGGER_WORD:-}"
 MODEL_REPO="${MODEL_REPO:-${ROOT}/models/Lens-Base}"
 [[ "${MODEL_REPO}" != /* ]] && MODEL_REPO="${ROOT}/${MODEL_REPO#./}"
@@ -61,6 +63,8 @@ ARGS=(
   --sample-every "${SAMPLE_EVERY}"
   --resolution "${RESOLUTION}"
 )
+[[ -n "${SAMPLE_EVERY_EARLY}" ]] && ARGS+=(--sample-every-early "${SAMPLE_EVERY_EARLY}")
+[[ -n "${SAMPLE_STEPS}" ]] && ARGS+=(--sample-steps "${SAMPLE_STEPS}")
 [[ -n "${TRIGGER_WORD}" ]] && ARGS+=(--trigger-word "${TRIGGER_WORD}")
 [[ "${DISABLE_MXFP4}" == "true" ]] && ARGS+=(--disable-mxfp4) || ARGS+=(--no-disable-mxfp4)
 [[ "${BASELINE_CONTROL}" == "true" ]] && ARGS+=(--baseline-control) || ARGS+=(--no-baseline-control)
