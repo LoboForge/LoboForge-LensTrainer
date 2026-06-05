@@ -11,13 +11,7 @@ LoRA fine-tune of **microsoft/Lens-Base** for two recurring characters (Sebastia
 | Published weights | `output/lens-lora-sebastian-jessica-v2/checkpoints/lora_step_005000.safetensors` (on HF as `lora_final.safetensors`) |
 | Full training run | `output/lens-lora-sebastian-jessica-v2/lora_final.safetensors` (8000 steps, local only) |
 
-Re-publish (from repo root, after `hf auth login`):
-
-```bash
-bash scripts/publish_huggingface_lora.sh
-```
-
-Default publish uses the **5000-step** checkpoint (`LORA_STEP=5000`).
+Published checkpoint: **5000 steps** (`lora_final.safetensors` on Hugging Face).
 
 ## Training summary
 

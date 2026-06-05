@@ -14,9 +14,7 @@ Example weights trained with this repo (writeups + samples in git; `.safetensors
 |------|---------|
 | Sebastian + Jessica v2 (dual-character, 5000-step checkpoint) | [HF model](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](docs/loras/sebastian-jessica-v2.md) |
 
-See [docs/loras/README.md](docs/loras/README.md) for how to publish your own.
-
-**Publish on Hugging Face:** trainer → [Space](docs/PUBLISH-huggingface.md#1-publish-the-trainer-space); LoRA weights → [Model repo](docs/PUBLISH-huggingface.md#2-publish-lora-weights-model-repo). To notify the Microsoft Lens team, use [docs/OUTREACH-microsoft-lens.md](docs/OUTREACH-microsoft-lens.md).
+See [docs/loras/README.md](docs/loras/README.md) for writeup templates.
 
 ## Quickstart (TL;DR)
 
