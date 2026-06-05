@@ -12,4 +12,4 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export LOBFORGE_TRAINER_DIR="${LOBFORGE_TRAINER_DIR:-${ROOT}}"
-exec "${ROOT}/scripts/bootstrap.sh" "$@"
+exec bash "${ROOT}/scripts/bootstrap.sh" "$@"
