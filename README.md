@@ -2,7 +2,21 @@
 
 Config-driven LoRA trainer for [Microsoft Lens-Base](https://huggingface.co/microsoft/Lens-Base). Train subject/style LoRAs from a folder of images + captions, export ComfyUI-compatible weights, and preview samples during training.
 
+**Hugging Face:** [spaces/LoboForge/LoboForge-LensTrainer](https://huggingface.co/spaces/LoboForge/LoboForge-LensTrainer) (docs Space) · **GitHub:** [LoboForge/LoboForge-LensTrainer](https://github.com/LoboForge/LoboForge-LensTrainer)
+
 ![LensTrainer training run in the terminal](LoboFogeLensTrainerScreen.png)
+
+## Published LoRAs
+
+Example weights trained with this repo (writeups + samples in git; `.safetensors` on Hugging Face):
+
+| LoRA | Writeup |
+|------|---------|
+| Sebastian + Jessica v2 (dual-character, 8000 steps) | [HF model](https://huggingface.co/LoboForge/lens-lora-sebastian-jessica-v2) · [writeup](docs/loras/sebastian-jessica-v2.md) |
+
+See [docs/loras/README.md](docs/loras/README.md) for how to publish your own.
+
+**Publish on Hugging Face:** trainer → [Space](docs/PUBLISH-huggingface.md#1-publish-the-trainer-space); LoRA weights → [Model repo](docs/PUBLISH-huggingface.md#2-publish-lora-weights-model-repo). To notify the Microsoft Lens team, use [docs/OUTREACH-microsoft-lens.md](docs/OUTREACH-microsoft-lens.md).
 
 ## Quickstart (TL;DR)
 
@@ -23,11 +37,11 @@ source .venv/bin/activate   # or ComfyUI venv with requirements.txt installed
 export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --dataset-path /path/to/your/images \
-  --output-dir /path/to/output/lens-lora-dual-character \
-  --job-name lens-lora-dual-character \
+  --dataset-path /path/to/DualCharacterLoraV2 \
+  --output-dir /path/to/output/lens-lora-sebastian-jessica-v2 \
+  --job-name lens-lora-sebastian-jessica-v2 \
   --model-repo /path/to/models/Lens-Base \
-  --steps 8000 \
+  --steps 4000 \
   --save-every 250 \
   --sample-every 400 \
   --resolution 0 \
@@ -212,9 +226,9 @@ On **16GB GPUs**, sampling encodes prompts on **CPU** and swaps **DiT + VAE** on
 
 Copy a block below, change paths and names, then run from the repo root with your venv active.
 
-### Dual-character LoRA (DualCharacterLoras)
+### Dual-character LoRA (Sebastian + Jessica, DualCharacterLoraV2)
 
-Preset: `configs/train_lora_dual_character_24gb.yaml` — **8000** steps, **48** image/caption pairs at **1024×1024**, auto resolution (`resolution: 0`), sample prompts copied from your `.txt` captions.
+Preset: `configs/train_lora_dual_character_24gb.yaml` — **4000** steps (24 images; raise only if samples stay weak), **24** image/caption pairs at **1024×1024**, auto resolution (`resolution: 0`), sample prompts copied from your `.txt` captions. Override paths with CLI flags (no `training.env` required).
 
 **Requirements before training:**
 
@@ -223,7 +237,7 @@ Preset: `configs/train_lora_dual_character_24gb.yaml` — **8000** steps, **48**
 - **16GB+ VRAM** with the 24GB preset (`cpu_offload`, caches, `batch_size: 1`)
 - Local Lens weights optional: `--set model.repo_id=./models/Lens-Base`
 
-**First run** (builds `cache/`, optional step-0 control, trains 8000 steps):
+**First run** (builds `cache/`, optional step-0 control, trains 4000 steps):
 
 ```bash
 cd /path/to/LensTrainer-LoboForge
@@ -231,30 +245,34 @@ source .venv/bin/activate
 export PYTHONPATH="$(pwd)/vendor/Lens:${PYTHONPATH}"
 
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --dataset-path /path/to/DualCharacterLoras \
-  --output-dir ./output/lens-lora-dual-character \
+  --dataset-path /path/to/DualCharacterLoraV2 \
+  --output-dir ./output/lens-lora-sebastian-jessica-v2 \
+  --job-name lens-lora-sebastian-jessica-v2 \
   --model-repo ./models/Lens-Base \
-  --steps 8000 --disable-mxfp4 --no-baseline-control
+  --steps 4000 --save-every 250 --sample-every 400 \
+  --resolution 0 --disable-mxfp4 --no-baseline-control
 ```
 
 **Re-run** (reuse caches, skip step-0 control):
 
 ```bash
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --dataset-path /path/to/DualCharacterLoras \
-  --output-dir ./output/lens-lora-dual-character \
+  --dataset-path /path/to/DualCharacterLoraV2 \
+  --output-dir ./output/lens-lora-sebastian-jessica-v2 \
+  --job-name lens-lora-sebastian-jessica-v2 \
   --model-repo ./models/Lens-Base \
-  --steps 8000 --disable-mxfp4 --no-baseline-control
+  --steps 4000 --disable-mxfp4 --no-baseline-control
 ```
 
-**Resume** after a checkpoint (e.g. left off at step 250 — saves every 250):
+**Resume** after a checkpoint (saves every 250):
 
 ```bash
 python train.py configs/train_lora_dual_character_24gb.yaml \
-  --dataset-path /path/to/DualCharacterLoras \
-  --output-dir ./output/lens-lora-dual-character \
+  --dataset-path /path/to/DualCharacterLoraV2 \
+  --output-dir ./output/lens-lora-sebastian-jessica-v2 \
+  --job-name lens-lora-sebastian-jessica-v2 \
   --model-repo ./models/Lens-Base \
-  --steps 8000 --disable-mxfp4 --resume latest
+  --steps 4000 --disable-mxfp4 --resume latest
 ```
 
 Confirm the startup block shows `resume_from: latest` (not empty) and you see `[resume] Resumed from … at step N`.
@@ -271,7 +289,7 @@ Confirm the startup block shows `resume_from: latest` (not empty) and you see `[
 | Force square 1024 | `--resolution 1024` |
 | GPU text cache (20GB+) | `--no-disable-mxfp4` (requires `pip install 'kernels>=0.12.0,<0.15'`) |
 
-Outputs: `./output/lens-lora-dual-character/lora_final.safetensors`, `checkpoints/`, `samples/`, `cache/`, `loss.json`.
+Outputs: `./output/lens-lora-sebastian-jessica-v2/lora_final.safetensors`, `checkpoints/`, `samples/`, `cache/`, `loss.json`.
 
 This dataset uses **full-sentence captions** (character names + scene). Sample prompts in the YAML mirror those lines; you do not need a single `trigger_word` unless you add one to every caption yourself.
 
@@ -436,7 +454,7 @@ If you switch `disable_mxfp4` after building caches, delete `cache/text/` (or th
 | File | Target | Notes |
 |------|--------|-------|
 | `configs/train_lora_lens_base_24gb.yaml` | ~16–24GB | Generic subject/style; 2000 steps template |
-| `configs/train_lora_dual_character_24gb.yaml` | ~16GB+ | Dual-character — 8000 steps, auto resolution (`--resolution 0`) |
+| `configs/train_lora_dual_character_24gb.yaml` | ~16GB+ | Dual-character — 4000 steps, auto resolution (`--resolution 0`) |
 | `configs/train_lora_willow_24gb.yaml` | ~16–24GB | LoboForge mascot Willow |
 | `configs/train_runpod_gpu.yaml` | RunPod 20GB+ | Cloud preset (`/workspace` paths in YAML) |
 | `configs/train_lora_lens_base_48gb.yaml` | 48GB+ | No offload, batch 2, rank 32 |

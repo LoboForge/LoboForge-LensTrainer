@@ -25,3 +25,5 @@ wandb/
 dataset_cache/
 .huggingface/
 training.env
+.hf-space-publish/
+sample_lora/

@@ -16,9 +16,17 @@ warnings.filterwarnings(
 os.environ.setdefault("USE_HUB_KERNELS", "NO")
 
 import argparse
+import sys
 from pathlib import Path
 
 import yaml
+
+_ROOT = Path(__file__).resolve().parent
+_LENS_VENDOR = _ROOT / "vendor" / "Lens"
+if _LENS_VENDOR.is_dir():
+    _vendor = str(_LENS_VENDOR)
+    if _vendor not in sys.path:
+        sys.path.insert(0, _vendor)
 
 from lens_trainer.cuda_env import configure_cuda_libraries
 
@@ -58,7 +66,7 @@ def _deep_merge(base: dict, patch: dict) -> dict:
 def main() -> None:
     parser = build_arg_parser()
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent
+    root = _ROOT
 
     # Precedence (low → high): YAML preset < --env-file < --set < explicit CLI flags
     overrides: dict = {}
