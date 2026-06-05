@@ -38,7 +38,7 @@ activate_trainer_env() {
     return 1
   fi
   if [[ ! -d "${root}/vendor/Lens/lens" ]]; then
-    echo "[error] Missing ${root}/vendor/Lens — run: bash scripts/install_microsoft_lens.sh" >&2
+    echo "[error] Missing ${root}/vendor/Lens — run: bash scripts/install_microsoft_lens.sh (from repo root)" >&2
     return 1
   fi
   # shellcheck disable=SC1091

@@ -37,3 +37,9 @@ lens_pythonpath() {
   local root="${1:?}"
   printf '%s/vendor/Lens' "${root}"
 }
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  install_microsoft_lens "${root}"
+  printf '\nNext: export PYTHONPATH=%s/vendor/Lens:${PYTHONPATH}\n' "${root}"
+fi
