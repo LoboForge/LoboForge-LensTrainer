@@ -139,18 +139,21 @@ export HF_TOKEN=hf_...
 bash scripts/quickstart.sh
 ```
 
-Re-run `bash scripts/quickstart.sh` anytime — it is safe and will **repair** a broken `models/Lens-Base` (e.g. git-lfs pointer files that cause `HeaderTooLarge`).
+Re-run `bash scripts/quickstart.sh` anytime — it repairs `vendor/Lens` and broken `models/Lens-Base`.
 
-Verify weights:
+**Model only** (after quickstart, or to fix git-lfs pointer files):
 
 ```bash
-python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
+export HF_TOKEN=hf_...   # or: hf auth login
+bash scripts/download_lens_base.sh
+bash scripts/download_lens_base.sh --force   # wipe + re-download
 ```
 
-Force a full model re-download:
+Verify weights (shards must be **GB-sized**, not ~135 bytes):
 
 ```bash
-FORCE_MODEL_REDOWNLOAD=1 bash scripts/quickstart.sh
+ls -lh ./models/Lens-Base/text_encoder/model*.safetensors
+python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
 ```
 
 ### Manual install (optional)
@@ -712,15 +715,16 @@ pip uninstall -y kernels kernels-data
 
 Then re-run `train.py`.
 
-### `HeaderTooLarge` when loading `LensGptOssEncoder`
+### `HeaderTooLarge` / git-lfs clone error
 
-Your `models/Lens-Base` weight files are **not real safetensors** — usually git-lfs pointer stubs from cloning the Hub repo without LFS.
+Your `models/Lens-Base` has **pointer files**, not weights — from `git clone https://huggingface.co/...` without `git lfs install`.
 
 ```bash
-ls -lh ./models/Lens-Base/text_encoder/
-python scripts/assemble_lens_repo.py --output ./models/Lens-Base --check
-FORCE_MODEL_REDOWNLOAD=1 bash scripts/quickstart.sh
+ls -lh ./models/Lens-Base/text_encoder/model*.safetensors   # ~135 bytes = broken
+bash scripts/download_lens_base.sh --force
 ```
+
+Do **not** git-clone Lens-Base; use `bash scripts/download_lens_base.sh` or quickstart.
 
 ### Corrupt or truncated training images
 

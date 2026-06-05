@@ -63,6 +63,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only verify whether --output is a complete HF repo; do not download",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete broken or existing output and re-download from the Hub",
+    )
     return parser.parse_args()
 
 
@@ -112,6 +117,7 @@ def main() -> None:
         transformer_source=transformer_path,
         vae_source=vae_path,
         use_symlink=use_symlink,
+        force=args.force,
     )
 
 

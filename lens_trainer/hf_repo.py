@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Iterable
 
@@ -177,12 +178,116 @@ def resolve_model_repo(repo_id: str) -> str:
     return repo_id
 
 
+def repo_needs_redownload(path: Path) -> bool:
+    """True when the folder is missing, incomplete, or contains git-lfs pointer stubs."""
+    path = path.expanduser()
+    if not path.is_dir():
+        return True
+    if is_complete_hf_repo(path):
+        return False
+    return bool(diagnose_hf_repo(path)) or (path / ".git").is_dir()
+
+
+def wipe_lens_repo_dir(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _hf_cli_download(repo_id: str, output_dir: Path) -> None:
+    hf = shutil.which("hf")
+    if not hf:
+        venv_hf = Path(os.environ.get("VIRTUAL_ENV", "")) / "bin" / "hf"
+        if venv_hf.is_file():
+            hf = str(venv_hf)
+    if not hf:
+        huggingface_cli = shutil.which("huggingface-cli")
+        if huggingface_cli:
+            subprocess.run(
+                [huggingface_cli, "download", repo_id, "--local-dir", str(output_dir)],
+                check=True,
+            )
+            return
+        raise RuntimeError("hf / huggingface-cli not found in PATH")
+    subprocess.run([hf, "download", repo_id, "--local-dir", str(output_dir)], check=True)
+
+
+def download_lens_base_from_hub(
+    output_dir: Path,
+    repo_id: str = "microsoft/Lens-Base",
+    *,
+    force: bool = False,
+) -> Path:
+    """
+    Download a complete Lens-Base folder via Hugging Face Hub.
+
+    Never use ``git clone`` on the Hub repo — without git-lfs you only get pointer
+    files and training fails with ``HeaderTooLarge``.
+    """
+    output_dir = output_dir.expanduser().resolve()
+
+    if is_complete_hf_repo(output_dir) and not force:
+        print(f"Lens-Base already complete: {output_dir}")
+        return output_dir
+
+    if output_dir.exists():
+        problems = diagnose_hf_repo(output_dir)
+        if (output_dir / ".git").is_dir():
+            problems.insert(
+                0,
+                "models/Lens-Base was git-cloned — remove it and use Hub download instead",
+            )
+        if problems:
+            print(f"Removing broken Lens-Base at {output_dir}:")
+            for line in problems:
+                print(f"  - {line}")
+        wipe_lens_repo_dir(output_dir)
+    else:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Downloading {repo_id} → {output_dir} (multi-GB weight files; not git-lfs pointers) ...")
+    from huggingface_hub import snapshot_download
+
+    try:
+        snapshot_download(
+            repo_id=repo_id,
+            local_dir=str(output_dir),
+            local_dir_use_symlinks=False,
+            force_download=True,
+        )
+    except Exception as exc:
+        print(f"snapshot_download failed ({exc}); trying hf download ...")
+        wipe_lens_repo_dir(output_dir)
+        _hf_cli_download(repo_id, output_dir)
+
+    if not is_complete_hf_repo(output_dir):
+        problems = diagnose_hf_repo(output_dir)
+        detail = "\n".join(f"  - {p}" for p in problems) or "  - unknown"
+        raise RuntimeError(
+            f"Lens-Base at {output_dir} is still not loadable after Hub download.\n{detail}\n"
+            "Check: HF_TOKEN or `hf auth login`, and license accepted at "
+            f"https://huggingface.co/{repo_id}"
+        )
+
+    manifest = {
+        "repo_id": repo_id,
+        "output_dir": str(output_dir),
+        "source": "huggingface_hub",
+    }
+    with (output_dir / ".lens_trainer_assembled.json").open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+
+    print(f"Ready: {output_dir}")
+    return output_dir
+
+
 def assemble_lens_repo(
     output_dir: Path,
     repo_id: str = "microsoft/Lens-Base",
     transformer_source: Path | None = None,
     vae_source: Path | None = None,
     use_symlink: bool = True,
+    force: bool = False,
 ) -> Path:
     """
     Build a Hugging Face–layout Lens folder at ``output_dir``.
@@ -195,7 +300,14 @@ def assemble_lens_repo(
     from huggingface_hub import snapshot_download
 
     output_dir = output_dir.expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if transformer_source is None and vae_source is None:
+        return download_lens_base_from_hub(output_dir, repo_id=repo_id, force=force)
+
+    if force or repo_needs_redownload(output_dir):
+        wipe_lens_repo_dir(output_dir)
+    else:
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     ignore_patterns: list[str] = []
 
@@ -224,6 +336,8 @@ def assemble_lens_repo(
         repo_id=repo_id,
         local_dir=str(output_dir),
         ignore_patterns=ignore_patterns or None,
+        local_dir_use_symlinks=False,
+        force_download=bool(force),
     )
 
     if not is_complete_hf_repo(output_dir):

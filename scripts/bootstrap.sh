@@ -55,11 +55,12 @@ run_apt() {
   log "System packages (git, python3-venv, build-essential)"
   "${apt[@]}" update -qq
   DEBIAN_FRONTEND=noninteractive "${apt[@]}" install -y -qq \
-    git ca-certificates curl \
+    git git-lfs ca-certificates curl \
     "${PYTHON}" "${PYTHON}-venv" "${PYTHON}-pip" "${PYTHON}-dev" \
     build-essential \
     2>/dev/null || DEBIAN_FRONTEND=noninteractive "${apt[@]}" install -y -qq \
-    git ca-certificates curl python3 python3-venv python3-pip python3-dev build-essential
+    git git-lfs ca-certificates curl python3 python3-venv python3-pip python3-dev build-essential
+  command -v git-lfs >/dev/null 2>&1 && git lfs install >/dev/null 2>&1 || true
 }
 
 check_gpu() {
@@ -174,27 +175,35 @@ download_lens_base_model() {
 
   mkdir -p "${INSTALL_DIR}/models"
   export PYTHONPATH="${INSTALL_DIR}/vendor/Lens:${PYTHONPATH:-}"
+  export MODEL_PATH="${MODEL_PATH}"
 
-  if [[ "${FORCE_MODEL_REDOWNLOAD}" == "1" ]] && [[ -d "${MODEL_PATH}" ]]; then
-    warn "FORCE_MODEL_REDOWNLOAD=1 — removing ${MODEL_PATH}"
-    rm -rf "${MODEL_PATH}"
-  elif [[ -d "${MODEL_PATH}" ]] && ! model_repo_ok; then
-    warn "Broken or incomplete Lens-Base at ${MODEL_PATH} (common: git clone without git-lfs)"
-    python "${INSTALL_DIR}/scripts/assemble_lens_repo.py" --output "${MODEL_PATH}" --check || true
-    warn "Re-downloading via huggingface_hub → ${MODEL_PATH}"
-    rm -rf "${MODEL_PATH}"
-  elif model_repo_ok; then
-    log "Lens-Base already present: ${MODEL_PATH}"
-    return 0
+  log "Lens-Base target: ${MODEL_PATH}"
+  if [[ -d "${MODEL_PATH}/.git" ]]; then
+    warn "Found git clone at ${MODEL_PATH} — will replace with Hub download (not git-lfs)"
   fi
 
-  log "Downloading ${MODEL_REPO_ID} → ${MODEL_PATH} (large, one-time; needs HF login + license)"
-  python "${INSTALL_DIR}/scripts/assemble_lens_repo.py" \
-    --output "${MODEL_PATH}" \
-    --repo-id "${MODEL_REPO_ID}"
+  local dl_args=(--output "${MODEL_PATH}" --repo-id "${MODEL_REPO_ID}")
+  if [[ "${FORCE_MODEL_REDOWNLOAD}" == "1" ]]; then
+    warn "FORCE_MODEL_REDOWNLOAD=1"
+    dl_args+=(--force)
+  elif model_repo_ok; then
+    log "Lens-Base already present and verified: ${MODEL_PATH}"
+    return 0
+  else
+    if [[ -d "${MODEL_PATH}" ]]; then
+      warn "Broken or incomplete Lens-Base — re-downloading via Hugging Face Hub"
+      python "${INSTALL_DIR}/scripts/assemble_lens_repo.py" --output "${MODEL_PATH}" --check || true
+    fi
+    dl_args+=(--force)
+  fi
 
-  model_repo_ok || die "Lens-Base download finished but verification failed — run:
-  python scripts/assemble_lens_repo.py --output ${MODEL_PATH} --check"
+  log "Downloading ${MODEL_REPO_ID} → ${MODEL_PATH}"
+  log "Do NOT git-clone the Hub repo; this uses hf download / huggingface_hub with real weight files"
+  python "${INSTALL_DIR}/scripts/assemble_lens_repo.py" "${dl_args[@]}"
+
+  model_repo_ok || die "Lens-Base verification failed at ${MODEL_PATH}.
+  Run: bash scripts/download_lens_base.sh --force
+  Check: ls -lh ${MODEL_PATH}/text_encoder/model*.safetensors  (must be GB-sized, not ~135 bytes)"
   log "Model ready: ${MODEL_PATH}"
 }
 
@@ -249,9 +258,13 @@ PY
   fi
 }
 
+is_runpod_install() {
+  [[ "${INSTALL_DIR}" == /workspace/* ]] || [[ -n "${RUNPOD_POD_ID:-}" ]]
+}
+
 print_done() {
   local train_hint
-  if [[ -d /workspace ]] && [[ -w /workspace ]]; then
+  if is_runpod_install; then
     train_hint="  bash scripts/train_runpod.sh"
   else
     train_hint="  python train.py configs/train_lora_lens_base_24gb.yaml \\
@@ -259,7 +272,7 @@ print_done() {
     --output-dir ./output/my-lora \\
     --job-name my-lora \\
     --model-repo ${MODEL_PATH} \\
-    --steps 2000 --disable-mxfp4"
+    --steps 2000"
   fi
 
   cat <<EOF
@@ -272,9 +285,10 @@ BOOTSTRAP DONE
 
 ${train_hint}
 
-  Model:    ${MODEL_PATH}
-  Re-check: python scripts/assemble_lens_repo.py --output ${MODEL_PATH} --check
-  Re-run:   bash scripts/quickstart.sh   (safe; fixes vendor/Lens + broken models)
+  Model:       ${MODEL_PATH}
+  Re-download: bash scripts/download_lens_base.sh --force
+  Re-check:    python scripts/assemble_lens_repo.py --output ${MODEL_PATH} --check
+  Re-setup:    bash scripts/quickstart.sh
 
 ================================================================================
 EOF
@@ -282,7 +296,9 @@ EOF
 
 main() {
   log "LensTrainer-LoboForge bootstrap (full environment + models)"
-  log "Install: ${INSTALL_DIR}"
+  log "Install dir: ${INSTALL_DIR}"
+  log "Shell cwd:   ${PWD}"
+  log "Tip: cd to your clone first, or set LOBFORGE_TRAINER_DIR=/path/to/LoboForge-LensTrainer"
   run_apt
   check_gpu
   check_python

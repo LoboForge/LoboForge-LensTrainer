@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-command setup from an existing clone (or fresh install dir):
-#   vendor/Lens + Python venv + Hugging Face auth + models/Lens-Base
+#   vendor/Lens + Python venv + HF auth + models/Lens-Base (Hub download, not git-lfs)
 #
 # From repo root:
 #   export HF_TOKEN=hf_...   # or run `hf auth login` when prompted
