@@ -12,7 +12,7 @@ model:
 dataset:
   folder_path: ./dataset
   caption_ext: txt
-  resolution: 1024
+  resolution: 0                # 0 = auto native aspect per image (snapped to 16px); 1024 = force square
   cache_latents: true          # disk cache; skipped on re-run — see README "Caching"
   max_sequence_length: 512
 
@@ -54,8 +54,8 @@ train:
 
 sample:
   trigger_word: mytrigger
-  width: 1024
-  height: 1024
+  width: 0                     # 0 = match dataset dominant size (e.g. 512×768)
+  height: 0
   steps: 50
   cfg: 5.0
   seed: 42
